@@ -1,13 +1,13 @@
 # RAG System
 
-Retrieval-Augmented Generation (RAG) pipeline for document-based question answering using local LLMs and TF-IDF retrieval.
+Retrieval-Augmented Generation (RAG) pipeline for document-based question answering using local LLMs (Ollama) and TF-IDF retrieval.
 
 ## Features
 - **Document Ingestion:** PDF to text conversion and chunking
 - **Indexing:** Simple TF-IDF vector store for fast retrieval
 - **Retrieval:** Query relevant document chunks using TF-IDF
-- **Synthesis:** Generate answers using a local LLM (TinyLlama or Ollama)
-- **Configurable:** Easily switch between local and API-based LLMs
+- **Synthesis:** Generate answers using a local LLM (Ollama or TinyLlama)
+- **Configurable:** Easily switch between supported local LLMs
 
 ## Directory Structure
 ```
@@ -33,7 +33,7 @@ rag_system/
    pip install -r requirements.txt
    ```
 3. **Set up environment variables:**
-   - Copy or create a `.env` file in the root directory with your API keys and settings (see `config/settings.py` for required variables).
+   - Copy or create a `.env` file in the root directory with your Ollama settings (see `config/settings.py` for required variables).
 
 ## Usage
 ### Command Line
@@ -56,22 +56,21 @@ print(answer)
 
 ## Configuration
 - All settings are managed in `config/settings.py` and via environment variables (`.env` file).
-- Supports both local LLMs (TinyLlama) and Ollama API.
-- Change model or API settings in your `.env` file as needed.
+- Supports only local LLMs (Ollama, TinyLlama). No OpenAI API key is required.
+- Change model or Ollama settings in your `.env` file as needed.
 
 ## Requirements
 See `requirements.txt` for all dependencies. Key packages:
 - transformers
 - torch
-- openai
 - pypdf
 - tqdm
 - python-dotenv
 
 ## Contact
 For questions or support, please contact:
-- [Your Name or Team]
-- [Your Email or GitHub]
+- [Soykot Podder]
+- [diptopodder95@gmail.com]
 
 ---
 Feel free to customize this README for your specific use case or deployment environment.
