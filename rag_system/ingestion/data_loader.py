@@ -17,4 +17,4 @@ def process_pdfs(input_dir, output_dir):
             with open(txt_path, "w", encoding="utf-8") as f:
                 f.write(text)
 
-            print(f"✅ {filename} → {txt_path}")
+            print(f" {filename} → {txt_path}")
