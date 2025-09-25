@@ -23,35 +23,35 @@ if __name__ == "__main__":
     args = parser.parse_args()
     run_ingestion()
     if args.query:
-        print(f"\n Processing: {args.query}")
+        print(f"\nProcessing: {args.query}")
         print("-" * 40)
         try:
             answer = rag_pipeline(args.query, top_k=args.top_k)
-            print(f"\n💡 Answer:\n{answer}")
+            print(f"\nAnswer:\n{answer}")
             print("-" * 40)
         except Exception as e:
-            print(f"\n Error: {e}")
+            print(f"\nError: {e}")
         raise SystemExit(0)
     print("\n" + "="*60)
-    print("🤖 RAG System Ready! Ask questions about your documents.")
+    print("RAG System Ready! Ask questions about your documents.")
     print("="*60)
     while True:
         try:
-            query = input("\n Enter your question (or 'quit' to exit): ").strip()
+            query = input("\nEnter your question (or 'quit' to exit): ").strip()
             if query.lower() in ['quit', 'exit', 'q']:
                 print("Goodbye!")
                 break
             if not query:
-                print(" Please enter a question.")
+                print("Please enter a question.")
                 continue
-            print(f"\n Processing: {query}")
+            print(f"\nProcessing: {query}")
             print("-" * 40)
             answer = rag_pipeline(query)
-            print(f"\n Answer:\n{answer}")
+            print(f"\nAnswer:\n{answer}")
             print("-" * 40)
         except KeyboardInterrupt:
-            print("\n\n Goodbye!")
+            print("\n\nGoodbye!")
             break
         except Exception as e:
-            print(f"\n❌ Error: {e}")
-            print(" Please try again with a different question.")
+            print(f"\nError: {e}")
+            print("Please try again with a different question.")

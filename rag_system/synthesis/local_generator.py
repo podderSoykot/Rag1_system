@@ -3,17 +3,16 @@ import torch
 import requests
 import json
 from config.settings import USE_OLLAMA, OLLAMA_BASE_URL, OLLAMA_MODEL
-
 class LocalLLMGenerator:
     def __init__(self, model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
         self.use_ollama = USE_OLLAMA
         self.ollama_url = OLLAMA_BASE_URL
         self.ollama_model = OLLAMA_MODEL
         if self.use_ollama:
-            print(f"🔄 Using Ollama for RAG: {self.ollama_model}")
-            print(f"✅ Ollama RAG ready: {self.ollama_model}")
+            print(f"Using Ollama for RAG: {self.ollama_model}")
+            print(f"Ollama RAG ready: {self.ollama_model}")
             return
-        print(f"🔄 Loading local model for RAG: {model_name}")
+        print(f"Loading local model for RAG: {model_name}")
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -25,11 +24,10 @@ class LocalLLMGenerator:
             self.device = device
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
-            print(f"✅ Local RAG model loaded successfully: {model_name}")
+            print(f"Local RAG model loaded successfully: {model_name}")
         except Exception as e:
-            print(f"❌ Failed to load RAG model {model_name}: {e}")
+            print(f"Failed to load RAG model {model_name}: {e}")
             raise Exception(f"Model loading failed: {e}")
-
     def generate_answer(self, prompt: str, max_new_tokens: int = 200):
         try:
             if self.use_ollama:
@@ -95,9 +93,8 @@ class LocalLLMGenerator:
             else:
                 return "Based on the retrieved documents, I cannot provide a specific answer to your question. The context may not contain enough relevant information."
         except Exception as e:
-            print(f"❌ RAG generation failed: {e}")
+            print(f"RAG generation failed: {e}")
             return f"Based on the retrieved document context, I can provide insights on the topics covered. The system encountered an error during generation: {str(e)}"
-
     def _generate_with_ollama(self, prompt: str):
         try:
             response = requests.post(
@@ -118,9 +115,8 @@ class LocalLLMGenerator:
             result = response.json()
             return result.get("response", "").strip()
         except Exception as e:
-            print(f"❌ Ollama generation failed: {e}")
+            print(f"Ollama generation failed: {e}")
             return f"Ollama generation failed: {str(e)}"
-
 def generate_answer(prompt: str):
     try:
         generator = LocalLLMGenerator()
