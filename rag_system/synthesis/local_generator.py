@@ -3,15 +3,33 @@ import torch
 import requests
 import json
 from config.settings import USE_OLLAMA, OLLAMA_BASE_URL, OLLAMA_MODEL
+
 class LocalLLMGenerator:
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls, model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
+        """Singleton pattern to ensure only one model instance exists"""
+        if cls._instance is None:
+            cls._instance = super(LocalLLMGenerator, cls).__new__(cls)
+        return cls._instance
+    
     def __init__(self, model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
+        """Initialize model only once (singleton pattern)"""
+        if self._initialized:
+            return
+        
         self.use_ollama = USE_OLLAMA
         self.ollama_url = OLLAMA_BASE_URL
         self.ollama_model = OLLAMA_MODEL
+        self.model_name = model_name
+        
         if self.use_ollama:
             print(f"Using Ollama for RAG: {self.ollama_model}")
             print(f"Ollama RAG ready: {self.ollama_model}")
+            LocalLLMGenerator._initialized = True
             return
+        
         print(f"Loading local model for RAG: {model_name}")
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -25,6 +43,7 @@ class LocalLLMGenerator:
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
             print(f"Local RAG model loaded successfully: {model_name}")
+            LocalLLMGenerator._initialized = True
         except Exception as e:
             print(f"Failed to load RAG model {model_name}: {e}")
             raise Exception(f"Model loading failed: {e}")
@@ -117,9 +136,20 @@ class LocalLLMGenerator:
         except Exception as e:
             print(f"Ollama generation failed: {e}")
             return f"Ollama generation failed: {str(e)}"
+# Global singleton instance
+_generator_instance = None
+
+def get_generator(model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
+    """Get or create the singleton generator instance"""
+    global _generator_instance
+    if _generator_instance is None:
+        _generator_instance = LocalLLMGenerator(model_name)
+    return _generator_instance
+
 def generate_answer(prompt: str):
+    """Generate answer using cached model instance"""
     try:
-        generator = LocalLLMGenerator()
+        generator = get_generator()
         return generator.generate_answer(prompt)
     except Exception as e:
         return f"System error: {str(e)}. Please check the model configuration."

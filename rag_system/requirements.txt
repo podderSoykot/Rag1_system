@@ -1,5 +1,4 @@
 pypdf
-openai
 tqdm
 python-dotenv
 requests
@@ -7,5 +6,11 @@ transformers>=4.41.0
 accelerate>=0.30.0
 safetensors>=0.4.2
 huggingface-hub>=0.23.0
+sentence-transformers
+torch
+faiss-cpu
+nltk>=3.8
 
 #checked
+# Note: chromadb is optional and has Windows compatibility issues
+# Using FAISS instead for vector search (works on all platforms)
