@@ -47,7 +47,7 @@ class LocalLLMGenerator:
         except Exception as e:
             print(f"Failed to load RAG model {model_name}: {e}")
             raise Exception(f"Model loading failed: {e}")
-    def generate_answer(self, prompt: str, max_new_tokens: int = 200):
+    def generate_answer(self, prompt: str, max_new_tokens: int = 250):
         try:
             if self.use_ollama:
                 return self._generate_with_ollama(prompt)
@@ -80,12 +80,13 @@ class LocalLLMGenerator:
                     attention_mask=attention_mask,
                     max_new_tokens=max_new_tokens,
                     num_return_sequences=1,
-                    temperature=0.3,
+                    temperature=0.7,
                     top_p=0.9,
-                    do_sample=False,
+                    do_sample=True,  # Enable sampling for better quality
                     pad_token_id=self.tokenizer.eos_token_id,
-                    repetition_penalty=1.1,
-                    eos_token_id=self.tokenizer.eos_token_id
+                    repetition_penalty=1.2,  # Increased to reduce repetition
+                    eos_token_id=self.tokenizer.eos_token_id,
+                    early_stopping=True  # Stop early if EOS token is generated
                 )
             generated_ids = outputs[0][input_length:]
             full_response = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
@@ -125,7 +126,7 @@ class LocalLLMGenerator:
                     "options": {
                         "temperature": 0.3,
                         "top_p": 0.9,
-                        "num_predict": 200
+                        "num_predict": 400
                     }
                 },
                 timeout=60

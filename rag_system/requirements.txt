@@ -10,7 +10,8 @@ sentence-transformers
 torch
 faiss-cpu
 nltk>=3.8
+pinecone-client
 
 #checked
-# Note: chromadb is optional and has Windows compatibility issues
-# Using FAISS instead for vector search (works on all platforms)
+# Note: Using Pinecone for vector search (cloud-based, scalable)
+# FAISS is kept as fallback option

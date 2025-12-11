@@ -1,13 +1,13 @@
 # RAG System
 
-Retrieval-Augmented Generation (RAG) pipeline for document-based question answering using local LLMs (Ollama) and TF-IDF retrieval.
+Retrieval-Augmented Generation (RAG) pipeline for document-based question answering using local LLMs (Ollama) with Pinecone vector database and TF-IDF retrieval.
 
 ## Features
 - **Document Ingestion:** PDF to text conversion and chunking
-- **Indexing:** Simple TF-IDF vector store for fast retrieval
-- **Retrieval:** Query relevant document chunks using TF-IDF
+- **Indexing:** Pinecone vector database (cloud-based, scalable) with TF-IDF fallback
+- **Retrieval:** Hybrid search combining semantic (Pinecone) and keyword (TF-IDF) retrieval
 - **Synthesis:** Generate answers using a local LLM (Ollama or TinyLlama)
-- **Configurable:** Easily switch between supported local LLMs
+- **Configurable:** Easily switch between Pinecone, FAISS, or local storage
 
 ## Directory Structure
 ```
@@ -33,7 +33,21 @@ rag_system/
    pip install -r requirements.txt
    ```
 3. **Set up environment variables:**
-   - Copy or create a `.env` file in the root directory with your Ollama settings (see `config/settings.py` for required variables).
+   - Create a `.env` file in the root directory with your configuration:
+   ```bash
+   # Pinecone Configuration (recommended)
+   USE_PINECONE=true
+   PINECONE_API_KEY=your-pinecone-api-key-here
+   PINECONE_INDEX_NAME=rag-system
+   PINECONE_ENVIRONMENT=us-east-1
+   
+   # Optional: Other settings
+   USE_HYBRID_SEARCH=true
+   CHUNK_SIZE=800
+   CHUNK_OVERLAP=100
+   ```
+   - Get your Pinecone API key from: https://www.pinecone.io/
+   - If you don't want to use Pinecone, set `USE_PINECONE=false` to use local FAISS storage
 
 ## Usage
 ### Command Line
@@ -66,6 +80,8 @@ See `requirements.txt` for all dependencies. Key packages:
 - pypdf
 - tqdm
 - python-dotenv
+- pinecone-client (for Pinecone vector database)
+- faiss-cpu (fallback for local vector storage)
 
 ## Contact
 For questions or support, please contact:

@@ -35,5 +35,12 @@ EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "128"))
 USE_QUERY_EXPANSION = os.getenv("USE_QUERY_EXPANSION", "true").lower() in ["1", "true", "yes"]
 
 # Retrieval quality filters
-MIN_CHUNK_LENGTH = int(os.getenv("MIN_CHUNK_LENGTH", "100"))  # Minimum chunk length to consider
+MIN_CHUNK_LENGTH = int(os.getenv("MIN_CHUNK_LENGTH", "50"))  # Minimum chunk length to consider (reduced for better coverage)
 LENGTH_BOOST_FACTOR = float(os.getenv("LENGTH_BOOST_FACTOR", "0.1"))  # Boost score for longer chunks
+
+# Pinecone configuration
+USE_PINECONE = os.getenv("USE_PINECONE", "true").lower() in ["1", "true", "yes"]
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
+PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "rag-system")
+PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1")  # For serverless, this is the region
+PINECONE_DIMENSION = int(os.getenv("PINECONE_DIMENSION", "384"))  # Dimension for all-MiniLM-L6-v2 is 384
