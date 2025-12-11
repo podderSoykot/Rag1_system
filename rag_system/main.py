@@ -10,6 +10,9 @@ from config.settings import (
 )
 import argparse
 import hashlib
+import time
+import os
+from pathlib import Path
 
 # Global retriever instance (cached)
 _retriever_instance = None
@@ -31,28 +34,115 @@ def _get_cache_key(query: str, top_k: int):
     key_string = f"{query.lower().strip()}:{top_k}"
     return hashlib.md5(key_string.encode()).hexdigest()
 
-def run_ingestion():
+def needs_ingestion():
+    """Check if ingestion is needed by comparing file modification times"""
+    # Check if indexes exist
+    faiss_path = Path(VECTOR_DB_DIR) / "faiss_index.bin"
+    embeddings_path = Path(VECTOR_DB_DIR) / "embeddings.npy"
+    metadata_path = Path(VECTOR_DB_DIR) / "vector_metadata.pkl"
+    tfidf_path = Path(VECTOR_DB_DIR) / "tfidf_index.pkl"
+    
+    # If no indexes exist, ingestion is needed
+    if not (faiss_path.exists() or embeddings_path.exists()) or not metadata_path.exists() or not tfidf_path.exists():
+        return True, "Indexes not found"
+    
+    # Get the most recent index modification time
+    index_times = []
+    if faiss_path.exists():
+        index_times.append(faiss_path.stat().st_mtime)
+    if embeddings_path.exists():
+        index_times.append(embeddings_path.stat().st_mtime)
+    if metadata_path.exists():
+        index_times.append(metadata_path.stat().st_mtime)
+    if tfidf_path.exists():
+        index_times.append(tfidf_path.stat().st_mtime)
+    
+    if not index_times:
+        return True, "No indexes found"
+    
+    latest_index_time = max(index_times)
+    
+    # Check if any source PDFs are newer than indexes
+    if DATA_RAW.exists():
+        for pdf_file in DATA_RAW.glob("*.pdf"):
+            pdf_time = pdf_file.stat().st_mtime
+            if pdf_time > latest_index_time:
+                return True, f"Source file {pdf_file.name} is newer than indexes"
+    
+    # Check if processed text files are newer than indexes
+    if DATA_PROCESSED.exists():
+        for txt_file in DATA_PROCESSED.glob("*.txt"):
+            txt_time = txt_file.stat().st_mtime
+            if txt_time > latest_index_time:
+                return True, f"Processed file {txt_file.name} is newer than indexes"
+    
+    # Check if chunks are newer than indexes
+    if DATA_CHUNKS.exists():
+        for chunk_file in DATA_CHUNKS.glob("*_chunks.txt"):
+            chunk_time = chunk_file.stat().st_mtime
+            if chunk_time > latest_index_time:
+                return True, f"Chunk file {chunk_file.name} is newer than indexes"
+    
+    # Check if chunks exist for all processed files
+    if DATA_PROCESSED.exists() and DATA_CHUNKS.exists():
+        txt_files = list(DATA_PROCESSED.glob("*.txt"))
+        for txt_file in txt_files:
+            chunk_file = DATA_CHUNKS / f"{txt_file.stem}_chunks.txt"
+            if not chunk_file.exists():
+                return True, f"Chunks missing for {txt_file.name}"
+    
+    # Everything is up to date
+    return False, "All files up to date"
+
+def run_ingestion(force=False):
+    """Run ingestion if needed, or skip if everything is up to date"""
+    reason = "Force mode"
+    # Check if ingestion is needed
+    if not force:
+        needs_it, reason = needs_ingestion()
+        if not needs_it:
+            print("\n" + "="*60)
+            print("✓ INGESTION SKIPPED - All files are up to date!")
+            print(f"  Reason: {reason}")
+            print("="*60 + "\n")
+            return
+    
+    start_time = time.time()
     print("\n" + "="*60)
     print("RAG SYSTEM INGESTION - Processing Documents")
+    if force:
+        print("(Force mode: Re-processing all files)")
+    else:
+        print(f"(Reason: {reason})")
     print("="*60)
     
     # Stage 1: PDF Processing (0-25%)
+    stage1_start = time.time()
     print("\n[Stage 1/4] Extracting text from PDFs... (0% - 25%)")
     process_pdfs(DATA_RAW, DATA_PROCESSED)
-    print("✓ PDF extraction complete! (25%)")
+    stage1_time = time.time() - stage1_start
+    print(f"✓ PDF extraction complete! (25%) - Time: {stage1_time:.1f}s")
     
     # Stage 2: Chunking (25-50%)
-    print("\n[Stage 2/4] Creating semantic chunks... (25% - 50%)")
+    stage2_start = time.time()
+    print(f"\n[Stage 2/4] Creating semantic chunks... (25% - 50%)")
     process_files(DATA_PROCESSED, DATA_CHUNKS)
-    print("✓ Chunking complete! (50%)")
+    stage2_time = time.time() - stage2_start
+    print(f"✓ Chunking complete! (50%) - Time: {stage2_time:.1f}s")
     
     # Stage 3 & 4: Indexing (50-100%)
-    print("\n[Stage 3-4/4] Generating embeddings and indexing... (50% - 100%)")
+    stage3_start = time.time()
+    print(f"\n[Stage 3-4/4] Generating embeddings and indexing... (50% - 100%)")
     index_documents(DATA_CHUNKS, str(VECTOR_DB_DIR), EMB_MODEL_NAME)
-    print("✓ Indexing complete! (100%)")
+    stage3_time = time.time() - stage3_start
+    print(f"✓ Indexing complete! (100%) - Time: {stage3_time:.1f}s")
+    
+    total_time = time.time() - start_time
+    minutes = int(total_time // 60)
+    seconds = int(total_time % 60)
     
     print("\n" + "="*60)
-    print("✓ INGESTION COMPLETE! System ready for queries.")
+    print(f"✓ INGESTION COMPLETE! Total time: {minutes}m {seconds}s")
     print("="*60 + "\n")
     
     # Clear retriever cache after re-indexing
@@ -97,8 +187,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the RAG pipeline")
     parser.add_argument("--query", type=str, default=None, help="Single question to run non-interactively")
     parser.add_argument("--top_k", type=int, default=3, help="Number of chunks to retrieve")
+    parser.add_argument("--force-ingestion", action="store_true", help="Force re-ingestion even if files are up to date")
     args = parser.parse_args()
-    run_ingestion()
+    run_ingestion(force=args.force_ingestion)
     if args.query:
         print(f"\nProcessing: {args.query}")
         print("-" * 40)

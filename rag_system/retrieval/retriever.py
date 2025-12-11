@@ -8,7 +8,8 @@ from collections import Counter
 from ingestion.embedder import get_embedding_model
 from config.settings import (
     USE_HYBRID_SEARCH, SEMANTIC_WEIGHT, TFIDF_WEIGHT,
-    USE_RERANKING, RERANK_TOP_K, USE_QUERY_EXPANSION
+    USE_RERANKING, RERANK_TOP_K, USE_QUERY_EXPANSION,
+    MIN_CHUNK_LENGTH, LENGTH_BOOST_FACTOR
 )
 try:
     from retrieval.query_expansion import expand_query
@@ -71,12 +72,12 @@ class Retriever:
             with open(index_path, "rb") as f:
                 self.index_data = pickle.load(f)
             self.use_tfidf = True
-            if not self.use_chroma:
+            if not self.use_vector_search:
                 print(f"[OK] Loaded TF-IDF index with {len(self.index_data['documents'])} documents")
         else:
             self.index_data = None
             self.use_tfidf = False
-            if not self.use_chroma:
+            if not self.use_vector_search:
                 raise FileNotFoundError(f"No index found at {db_dir}")
         
         # Get embedding model for semantic search
@@ -106,23 +107,34 @@ class Retriever:
             query_embedding = self.embedding_model.encode(query, show_progress_bar=False)
             query_vector = np.array([query_embedding], dtype=np.float32)
             
-            # Search using FAISS
+            # Search using FAISS - get more candidates to filter
             if HAS_FAISS and self.vector_index is not None:
-                # FAISS search
-                k = min(top_k * 2, len(self.vector_metadata['documents']), 50)
+                # FAISS search - get more results for filtering
+                k = min(top_k * 5, len(self.vector_metadata['documents']), 100)
                 distances, indices = self.vector_index.search(query_vector, k)
                 
-                # Convert distances to similarities (inverse of normalized distance)
+                # Convert distances to similarities and filter/boost by length
                 results = []
                 for idx, dist in zip(indices[0], distances[0]):
                     if idx < len(self.vector_metadata['documents']):
-                        # Convert L2 distance to similarity (higher distance = lower similarity)
-                        # Normalize: similarity = 1 / (1 + distance)
-                        similarity = 1.0 / (1.0 + dist)
                         doc = self.vector_metadata['documents'][idx]
+                        
+                        # Filter out very short chunks
+                        if len(doc.strip()) < MIN_CHUNK_LENGTH:
+                            continue
+                        
+                        # Convert L2 distance to similarity
+                        similarity = 1.0 / (1.0 + dist)
+                        
+                        # Boost score for longer, more informative chunks
+                        length_boost = min(len(doc) / 1000.0, 1.0) * LENGTH_BOOST_FACTOR
+                        similarity = similarity + length_boost
+                        
                         results.append((doc, similarity))
                 
-                return results
+                # Sort by boosted similarity
+                results.sort(key=lambda x: x[1], reverse=True)
+                return results[:top_k * 2]  # Return top candidates
             
             # Fallback: numpy-based search (brute force)
             elif hasattr(self, 'embeddings_array'):
@@ -137,18 +149,31 @@ class Retriever:
                 # Compute dot products (cosine similarity)
                 similarities = np.dot(self.embeddings_array, query_normalized.T).flatten()
                 
-                # Get top-k indices
-                k = min(top_k * 2, len(similarities), 50)
+                # Get top-k indices - get more for filtering
+                k = min(top_k * 5, len(similarities), 100)
                 top_indices = np.argsort(similarities)[::-1][:k]
                 
-                # Return documents with similarities
+                # Return documents with similarities, filtered and boosted
                 results = []
                 for idx in top_indices:
                     if similarities[idx] > 0:  # Only positive similarities
                         doc = self.vector_metadata['documents'][idx]
-                        results.append((doc, float(similarities[idx])))
+                        
+                        # Filter out very short chunks
+                        if len(doc.strip()) < MIN_CHUNK_LENGTH:
+                            continue
+                        
+                        similarity = float(similarities[idx])
+                        
+                        # Boost score for longer chunks
+                        length_boost = min(len(doc) / 1000.0, 1.0) * LENGTH_BOOST_FACTOR
+                        similarity = similarity + length_boost
+                        
+                        results.append((doc, similarity))
                 
-                return results
+                # Sort by boosted similarity
+                results.sort(key=lambda x: x[1], reverse=True)
+                return results[:top_k * 2]
             
             return []
         except Exception as e:
@@ -172,20 +197,33 @@ class Retriever:
                     score += doc_scores[term]
             scores.append((i, score))
         
-        # Sort by score (descending) and get top-k
+        # Sort by score (descending) and get more candidates
         scores.sort(key=lambda x: x[1], reverse=True)
         
-        # Normalize scores (0-1 range)
+        # Normalize scores (0-1 range) and filter by length
         max_score = max([s[1] for s in scores]) if scores else 1.0
-        normalized_scores = [(idx, (score / max_score) if max_score > 0 else 0.0) 
-                            for idx, score in scores[:top_k * 2] if score > 0]
-        
-        # Return documents with scores
         results = []
-        for idx, score in normalized_scores:
-            results.append((self.index_data['documents'][idx], score))
+        for idx, score in scores[:top_k * 5]:  # Get more candidates
+            if score <= 0:
+                continue
+            
+            doc = self.index_data['documents'][idx]
+            
+            # Filter out very short chunks
+            if len(doc.strip()) < MIN_CHUNK_LENGTH:
+                continue
+            
+            normalized_score = (score / max_score) if max_score > 0 else 0.0
+            
+            # Boost score for longer chunks
+            length_boost = min(len(doc) / 1000.0, 1.0) * LENGTH_BOOST_FACTOR
+            normalized_score = normalized_score + length_boost
+            
+            results.append((doc, normalized_score))
         
-        return results
+        # Sort by boosted score
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:top_k * 2]
 
     def _rerank(self, query: str, candidates: list, top_k: int):
         """Rerank candidates using cross-encoder"""
@@ -271,11 +309,21 @@ class Retriever:
         else:
             return ["No relevant documents found."]
         
+        # Filter out very short chunks one more time
+        candidates = [(doc, score) for doc, score in candidates if len(doc.strip()) >= MIN_CHUNK_LENGTH]
+        
         # Rerank if enabled
         if USE_RERANKING and len(candidates) > top_k:
             candidates = self._rerank(query, candidates, RERANK_TOP_K)
         
-        # Return top-k documents
+        # Return top-k documents (prioritize longer, more informative chunks)
         results = [doc for doc, score in candidates[:top_k]]
+        
+        # If we don't have enough good results, try to get more
+        if len(results) < top_k and len(candidates) > len(results):
+            # Get additional results even if shorter
+            additional = [doc for doc, score in candidates[len(results):top_k * 2] 
+                         if len(doc.strip()) >= 50]  # Lower threshold for fallback
+            results.extend(additional[:top_k - len(results)])
         
         return results if results else ["No relevant documents found."]
