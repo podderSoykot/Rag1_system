@@ -105,14 +105,14 @@ def create_chunks_with_overlap(sentences, chunk_size, overlap):
     return chunks
 
 def process_files(input_dir, output_dir, chunk_size=None, chunk_overlap=None):
-    """Process files with semantic-aware chunking"""
+    """Process files with semantic-aware chunking (memory-efficient for large files)"""
     if chunk_size is None:
         chunk_size = CHUNK_SIZE
     if chunk_overlap is None:
         chunk_overlap = CHUNK_OVERLAP
     
     os.makedirs(output_dir, exist_ok=True)
-    
+
     txt_files = [f for f in os.listdir(input_dir) if f.endswith(".txt")]
     total_files = len(txt_files)
     
@@ -120,32 +120,117 @@ def process_files(input_dir, output_dir, chunk_size=None, chunk_overlap=None):
         print("  No text files found to chunk.")
         return
 
+    processed_count = 0
+    skipped_count = 0
+    
     for idx, filename in enumerate(txt_files, 1):
         input_path = os.path.join(input_dir, filename)
         output_path = os.path.join(output_dir, filename.replace(".txt", "_chunks.txt"))
+
+        # Check if chunks already exist and are up to date
+        if os.path.exists(output_path):
+            input_time = os.path.getmtime(input_path)
+            output_time = os.path.getmtime(output_path)
+            if output_time >= input_time:
+                skipped_count += 1
+                print(f"  Skipping {filename} - already chunked ({idx}/{total_files})")
+                continue
 
         # Calculate progress percentage (25-50% for chunking)
         progress = 25 + int((idx / total_files) * 25)
         
         print(f"  Chunking {filename} ({idx}/{total_files}) - {progress}%")
-        print(f"    Reading file...", end="", flush=True)
+        print(f"    Processing file in chunks to avoid memory issues...", end="", flush=True)
 
-        with open(input_path, "r", encoding="utf-8") as f:
-            text = f.read()
-
-        print(f" ✓ Splitting into sentences...", end="", flush=True)
-        # Split into sentences
-        sentences = split_into_sentences(text)
+        # Memory-efficient chunking: process and write incrementally
+        chunk_count = 0
+        current_chunk = []
+        current_length = 0
+        overlap_buffer = []
         
-        print(f" ✓ Creating chunks...", end="", flush=True)
-        # Create chunks with overlap and sentence boundaries
-        chunks = create_chunks_with_overlap(sentences, chunk_size, chunk_overlap)
-        
-        # Filter out very short chunks (likely artifacts)
-        chunks = [chunk.strip() for chunk in chunks if len(chunk.strip()) > 50]
+        # Process file in smaller sections
+        with open(input_path, "r", encoding="utf-8") as infile, \
+             open(output_path, "w", encoding="utf-8") as outfile:
+            
+            # Read file in chunks to avoid loading entire file into memory
+            buffer = ""
+            chunk_read_size = 1024 * 1024  # 1MB at a time
+            
+            while True:
+                chunk_text = infile.read(chunk_read_size)
+                if not chunk_text:
+                    # Process remaining buffer
+                    if buffer:
+                        sentences = split_into_sentences(buffer)
+                        for sentence in sentences:
+                            sentence_length = len(sentence)
+                            
+                            # If adding this sentence would exceed chunk size
+                            if current_length + sentence_length + 1 > chunk_size and current_chunk:
+                                # Write current chunk
+                                chunk_text = ' '.join(current_chunk)
+                                if len(chunk_text.strip()) > 50:
+                                    outfile.write(chunk_text.strip() + "\n")
+                                    chunk_count += 1
+                                
+                                # Start new chunk with overlap
+                                overlap_buffer = current_chunk[-3:] if len(current_chunk) >= 3 else current_chunk
+                                current_chunk = overlap_buffer.copy()
+                                current_length = sum(len(s) for s in current_chunk)
+                            
+                            current_chunk.append(sentence)
+                            current_length += sentence_length + 1
+                    break
+                
+                buffer += chunk_text
+                
+                # Process complete sentences from buffer
+                while True:
+                    # Try to find sentence boundaries
+                    period_idx = buffer.find('. ')
+                    exclamation_idx = buffer.find('! ')
+                    question_idx = buffer.find('? ')
+                    
+                    # Find the earliest sentence boundary
+                    boundaries = [i for i in [period_idx, exclamation_idx, question_idx] if i != -1]
+                    if not boundaries:
+                        # No complete sentence found, read more
+                        break
+                    
+                    sentence_end = min(boundaries) + 1
+                    sentence = buffer[:sentence_end].strip()
+                    buffer = buffer[sentence_end:].strip()
+                    
+                    if not sentence:
+                        continue
+                    
+                    sentence_length = len(sentence)
+                    
+                    # If adding this sentence would exceed chunk size
+                    if current_length + sentence_length + 1 > chunk_size and current_chunk:
+                        # Write current chunk
+                        chunk_text = ' '.join(current_chunk)
+                        if len(chunk_text.strip()) > 50:
+                            outfile.write(chunk_text.strip() + "\n")
+                            chunk_count += 1
+                        
+                        # Start new chunk with overlap
+                        overlap_buffer = current_chunk[-3:] if len(current_chunk) >= 3 else current_chunk
+                        current_chunk = overlap_buffer.copy()
+                        current_length = sum(len(s) for s in current_chunk)
+                    
+                    current_chunk.append(sentence)
+                    current_length += sentence_length + 1
+            
+            # Write final chunk
+            if current_chunk:
+                chunk_text = ' '.join(current_chunk)
+                if len(chunk_text.strip()) > 50:
+                    outfile.write(chunk_text.strip() + "\n")
+                    chunk_count += 1
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            for chunk in chunks:
-                f.write(chunk + "\n")
-
-        print(f" ✓ {len(chunks)} chunks created")
+        processed_count += 1
+        print(f" ✓ {chunk_count} chunks created")
+    
+    if skipped_count > 0:
+        print(f"  ({skipped_count} file(s) skipped - already chunked)")

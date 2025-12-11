@@ -97,20 +97,53 @@ def index_documents(input_dir: str, db_dir: str, model_name: str):
     print(f" ✓")
     
     # Generate embeddings in batches
-    print(f"  Generating embeddings (batch size: {EMBEDDING_BATCH_SIZE})...")
-    embeddings = []
+    import time
+    embedding_start = time.time()
     num_batches = (total_docs + EMBEDDING_BATCH_SIZE - 1) // EMBEDDING_BATCH_SIZE
+    print(f"  Generating embeddings for {total_docs} chunks...")
+    print(f"    Batch size: {EMBEDDING_BATCH_SIZE}, Total batches: {num_batches}")
+    embeddings = []
     
     for batch_idx, i in enumerate(range(0, len(documents), EMBEDDING_BATCH_SIZE), 1):
+        batch_start = time.time()
         batch = documents[i:i + EMBEDDING_BATCH_SIZE]
         # Calculate progress: 50-75% for embedding generation
         progress = 50 + int((batch_idx / num_batches) * 25)
-        print(f"    Batch {batch_idx}/{num_batches} - {progress}%", end="", flush=True)
         
-        batch_embeddings = embedding_model.encode(batch, show_progress_bar=False)
+        # Estimate time remaining
+        elapsed = time.time() - embedding_start
+        if batch_idx > 1:
+            avg_time_per_batch = elapsed / batch_idx
+            remaining_batches = num_batches - batch_idx
+            eta_seconds = avg_time_per_batch * remaining_batches
+            eta_min = int(eta_seconds // 60)
+            eta_sec = int(eta_seconds % 60)
+            if eta_min > 0:
+                eta_str = f" (ETA: {eta_min}m {eta_sec}s)"
+            elif eta_sec > 10:
+                eta_str = f" (ETA: {eta_sec}s)"
+            else:
+                eta_str = ""
+            
+            # Show processing rate
+            docs_per_sec = (batch_idx * EMBEDDING_BATCH_SIZE) / elapsed if elapsed > 0 else 0
+            rate_str = f" [{docs_per_sec:.1f} docs/s]"
+        else:
+            eta_str = ""
+            rate_str = ""
+        
+        print(f"    Batch {batch_idx}/{num_batches} ({i+1}-{min(i+EMBEDDING_BATCH_SIZE, total_docs)}/{total_docs}) - {progress}%{eta_str}{rate_str}", end="", flush=True)
+        
+        batch_embeddings = embedding_model.encode(batch, show_progress_bar=False, convert_to_numpy=True)
         embeddings.extend(batch_embeddings.tolist())
         
-        print(f" ✓")
+        batch_time = time.time() - batch_start
+        print(f" ✓ ({batch_time:.1f}s)")
+        
+        # Show progress every 10 batches
+        if batch_idx % 10 == 0:
+            elapsed_total = time.time() - embedding_start
+            print(f"      Progress: {batch_idx}/{num_batches} batches, {elapsed_total/60:.1f} minutes elapsed")
     
     embeddings_array = np.array(embeddings, dtype=np.float32)
     embedding_dim = embeddings_array.shape[1]

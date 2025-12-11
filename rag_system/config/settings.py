@@ -13,8 +13,8 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 
 # Chunking configuration
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "500"))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))  # Increased for better context
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))  # Increased overlap for better continuity
 
 # Search configuration
 USE_HYBRID_SEARCH = os.getenv("USE_HYBRID_SEARCH", "true").lower() in ["1", "true", "yes"]
@@ -28,7 +28,12 @@ CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() in ["1", "true", "yes
 CACHE_SIZE = int(os.getenv("CACHE_SIZE", "100"))  # LRU cache size
 
 # Embedding configuration
-EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
+# Increase batch size for faster processing (128 is good for CPU, 256+ for GPU)
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "128"))
 
 # Query expansion
 USE_QUERY_EXPANSION = os.getenv("USE_QUERY_EXPANSION", "true").lower() in ["1", "true", "yes"]
+
+# Retrieval quality filters
+MIN_CHUNK_LENGTH = int(os.getenv("MIN_CHUNK_LENGTH", "100"))  # Minimum chunk length to consider
+LENGTH_BOOST_FACTOR = float(os.getenv("LENGTH_BOOST_FACTOR", "0.1"))  # Boost score for longer chunks
