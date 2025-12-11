@@ -8,9 +8,10 @@ DATA_PROCESSED = BASE_DIR / "data" / "processed"
 DATA_CHUNKS = DATA_PROCESSED / "chunks"
 VECTOR_DB_DIR = BASE_DIR / "data" / "embeddings" / "chroma_db"
 EMB_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-USE_OLLAMA = os.getenv("USE_OLLAMA", "false").lower() in ["1", "true", "yes"]
+USE_OLLAMA = os.getenv("USE_OLLAMA", "true").lower() in ["1", "true", "yes"]  # Default to true for better performance
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))  # Increased timeout for longer responses
 
 # Chunking configuration
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))  # Increased for better context
@@ -44,3 +45,6 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "rag-system")
 PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1")  # For serverless, this is the region
 PINECONE_DIMENSION = int(os.getenv("PINECONE_DIMENSION", "384"))  # Dimension for all-MiniLM-L6-v2 is 384
+
+# Performance monitoring
+ENABLE_PERFORMANCE_PROFILING = os.getenv("ENABLE_PERFORMANCE_PROFILING", "false").lower() in ["1", "true", "yes"]

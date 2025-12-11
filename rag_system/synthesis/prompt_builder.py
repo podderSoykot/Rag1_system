@@ -21,29 +21,41 @@ def build_prompt(query: str, docs: list):
     
     context = "\n\n---\n\n".join(context_parts)
     
-    # Determine if query is complex (multiple parts, "how", "why", "explain")
-    is_complex = any(word in query.lower() for word in ['how', 'why', 'explain', 'describe', 'compare', 'difference'])
+    # Determine query type for better prompting
+    query_lower = query.lower()
+    is_list_query = any(word in query_lower for word in ['list', 'what are', 'chapters', 'topics', 'sections'])
+    is_complex = any(word in query_lower for word in ['how', 'why', 'explain', 'describe', 'compare', 'difference'])
     
-    # Create enhanced prompt with better structure
-    if is_complex:
-        # Simplified but still structured for complex questions
-        prompt = f"""Based on the documents below, provide a detailed answer to the question.
+    # Create optimized prompts based on query type
+    if is_list_query:
+        # For list queries, emphasize extracting items
+        prompt = f"""Extract and list the information requested from these documents.
 
 Documents:
 {context}
 
 Question: {query}
 
-Answer (be detailed and use information from the documents):"""
+Provide a clear list or enumeration based on the documents:"""
+    elif is_complex:
+        # For complex questions, provide structured guidance
+        prompt = f"""Answer the question using information from the documents below.
+
+Documents:
+{context}
+
+Question: {query}
+
+Provide a detailed answer with specific information from the documents:"""
     else:
-        # Simplified prompt for better TinyLlama performance
-        prompt = f"""Based on the following documents, answer the question directly and concisely.
+        # Simple direct answer prompt
+        prompt = f"""Answer the question using only the information in these documents.
 
 Documents:
 {context}
 
 Question: {query}
 
-Answer (use only information from the documents above):"""
+Answer:"""
     
     return prompt

@@ -184,7 +184,7 @@ def rag_pipeline(query: str, top_k: int = 3, use_cache: bool = None, show_timing
     
     # Generation timing
     generation_start = time.time()
-    answer = generate_answer(prompt)
+    answer = generate_answer(prompt, query=query)
     generation_time = time.time() - generation_start
     
     total_time = time.time() - total_start
@@ -196,6 +196,17 @@ def rag_pipeline(query: str, top_k: int = 3, use_cache: bool = None, show_timing
         print(f"  Prompt:     {prompt_time*1000:.0f}ms")
         print(f"  Generation: {generation_time*1000:.0f}ms")
         print(f"  Total:      {total_time*1000:.0f}ms ({total_time:.2f}s)")
+        
+        # Answer quality metrics
+        if answer:
+            answer_length = len(answer)
+            word_count = len(answer.split())
+            print(f"\n[Answer Quality]")
+            print(f"  Length: {answer_length} chars, {word_count} words")
+            if answer_length < 50:
+                print(f"  ⚠ Warning: Answer is quite short")
+            elif answer_length > 1000:
+                print(f"  ✓ Answer is comprehensive")
     
     # Store in cache
     if use_cache:
@@ -218,6 +229,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     show_timing = not args.no_timing
+    
+    # Test Ollama connection if using Ollama
+    from config.settings import USE_OLLAMA
+    if USE_OLLAMA:
+        from synthesis.local_generator import get_generator
+        try:
+            generator = get_generator()
+            if hasattr(generator, 'use_ollama') and generator.use_ollama:
+                print("[Info] Ollama is enabled and ready")
+        except Exception as e:
+            print(f"[Warning] Ollama setup issue: {e}")
+    
     run_ingestion(force=args.force_ingestion)
     if args.query:
         print(f"\nProcessing: {args.query}")

@@ -4,7 +4,10 @@ import os
 import pickle
 import re
 import numpy as np
+import hashlib
+import threading
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from ingestion.embedder import get_embedding_model
 from config.settings import (
     USE_HYBRID_SEARCH, SEMANTIC_WEIGHT, TFIDF_WEIGHT,
@@ -42,6 +45,11 @@ class Retriever:
     def __init__(self, db_dir: str, model_name: str):
         self.db_dir = db_dir
         self.model_name = model_name
+        
+        # Retrieval result cache (for similar queries)
+        self._retrieval_cache = {}
+        self._cache_lock = threading.Lock()
+        self._max_cache_size = 50
         
         # Load vector index (Pinecone, FAISS, or numpy)
         self.use_vector_search = False
@@ -314,9 +322,22 @@ class Retriever:
             print(f"[Warning] Reranking failed: {e}")
             return candidates[:top_k]
 
+    def _get_cache_key(self, query: str, top_k: int):
+        """Generate cache key for retrieval results"""
+        key_string = f"{query.lower().strip()}:{top_k}"
+        return hashlib.md5(key_string.encode()).hexdigest()
+    
     def search(self, query: str, top_k: int = 3, show_timing: bool = False):
-        """Hybrid search combining semantic and TF-IDF"""
+        """Hybrid search combining semantic and TF-IDF with parallelization"""
         import time
+        
+        # Check cache first
+        cache_key = self._get_cache_key(query, top_k)
+        with self._cache_lock:
+            if cache_key in self._retrieval_cache:
+                if show_timing:
+                    print(f"    [Cache Hit] Using cached retrieval results")
+                return self._retrieval_cache[cache_key]
         
         # Expand query if enabled
         if USE_QUERY_EXPANSION:
@@ -324,25 +345,53 @@ class Retriever:
             # Use original query primarily
             search_query = query
         
-        # Perform semantic search
+        # Perform searches in parallel when both are enabled
         semantic_results = []
-        semantic_time = 0
-        if self.use_vector_search:
-            semantic_start = time.time()
-            semantic_results = self._semantic_search(query, top_k * 2)
-            semantic_time = time.time() - semantic_start
-            if show_timing:
-                print(f"    Semantic search: {semantic_time*1000:.0f}ms")
-        
-        # Perform TF-IDF search
         tfidf_results = []
+        semantic_time = 0
         tfidf_time = 0
-        if self.use_tfidf:
-            tfidf_start = time.time()
-            tfidf_results = self._tfidf_search(query, top_k * 2)
-            tfidf_time = time.time() - tfidf_start
-            if show_timing:
-                print(f"    TF-IDF search: {tfidf_time*1000:.0f}ms")
+        
+        if USE_HYBRID_SEARCH and self.use_vector_search and self.use_tfidf:
+            # Parallel execution for hybrid search
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                semantic_future = None
+                tfidf_future = None
+                
+                if self.use_vector_search:
+                    semantic_future = executor.submit(self._semantic_search, query, top_k * 2)
+                
+                if self.use_tfidf:
+                    tfidf_future = executor.submit(self._tfidf_search, query, top_k * 2)
+                
+                # Wait for results with timing
+                if semantic_future:
+                    semantic_start = time.time()
+                    semantic_results = semantic_future.result()
+                    semantic_time = time.time() - semantic_start
+                    if show_timing:
+                        print(f"    Semantic search: {semantic_time*1000:.0f}ms")
+                
+                if tfidf_future:
+                    tfidf_start = time.time()
+                    tfidf_results = tfidf_future.result()
+                    tfidf_time = time.time() - tfidf_start
+                    if show_timing:
+                        print(f"    TF-IDF search: {tfidf_time*1000:.0f}ms")
+        else:
+            # Sequential execution (fallback or single search mode)
+            if self.use_vector_search:
+                semantic_start = time.time()
+                semantic_results = self._semantic_search(query, top_k * 2)
+                semantic_time = time.time() - semantic_start
+                if show_timing:
+                    print(f"    Semantic search: {semantic_time*1000:.0f}ms")
+            
+            if self.use_tfidf:
+                tfidf_start = time.time()
+                tfidf_results = self._tfidf_search(query, top_k * 2)
+                tfidf_time = time.time() - tfidf_start
+                if show_timing:
+                    print(f"    TF-IDF search: {tfidf_time*1000:.0f}ms")
         
         # Combine results
         if USE_HYBRID_SEARCH and semantic_results and tfidf_results:
@@ -403,4 +452,14 @@ class Retriever:
                          if len(doc.strip()) >= 50]  # Lower threshold for fallback
             results.extend(additional[:top_k - len(results)])
         
-        return results if results else ["No relevant documents found."]
+        final_results = results if results else ["No relevant documents found."]
+        
+        # Cache results
+        with self._cache_lock:
+            if len(self._retrieval_cache) >= self._max_cache_size:
+                # Remove oldest entry (simple FIFO)
+                oldest_key = next(iter(self._retrieval_cache))
+                del self._retrieval_cache[oldest_key]
+            self._retrieval_cache[cache_key] = final_results
+        
+        return final_results

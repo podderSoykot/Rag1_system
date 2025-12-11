@@ -2,7 +2,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 import requests
 import json
-from config.settings import USE_OLLAMA, OLLAMA_BASE_URL, OLLAMA_MODEL
+import time
+from config.settings import USE_OLLAMA, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT
 
 class LocalLLMGenerator:
     _instance = None
@@ -22,11 +23,16 @@ class LocalLLMGenerator:
         self.use_ollama = USE_OLLAMA
         self.ollama_url = OLLAMA_BASE_URL
         self.ollama_model = OLLAMA_MODEL
+        self.ollama_timeout = OLLAMA_TIMEOUT
         self.model_name = model_name
         
         if self.use_ollama:
             print(f"Using Ollama for RAG: {self.ollama_model}")
-            print(f"Ollama RAG ready: {self.ollama_model}")
+            # Test Ollama connection on startup
+            if self._test_ollama_connection():
+                print(f"✓ Ollama connection verified")
+            else:
+                print(f"⚠ Warning: Ollama connection test failed. Generation may fail.")
             LocalLLMGenerator._initialized = True
             return
         
@@ -50,7 +56,7 @@ class LocalLLMGenerator:
     def generate_answer(self, prompt: str, max_new_tokens: int = 250):
         try:
             if self.use_ollama:
-                return self._generate_with_ollama(prompt)
+                return self._generate_with_ollama(prompt, max_new_tokens)
             chat_supported = hasattr(self.tokenizer, "apply_chat_template") and self.tokenizer.chat_template is not None
             if chat_supported:
                 chat_messages = [
@@ -115,28 +121,122 @@ class LocalLLMGenerator:
         except Exception as e:
             print(f"RAG generation failed: {e}")
             return f"Based on the retrieved document context, I can provide insights on the topics covered. The system encountered an error during generation: {str(e)}"
-    def _generate_with_ollama(self, prompt: str):
+    def _test_ollama_connection(self):
+        """Test Ollama connection and model availability"""
         try:
-            response = requests.post(
-                f"{self.ollama_url}/api/generate",
-                json={
-                    "model": self.ollama_model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.3,
-                        "top_p": 0.9,
-                        "num_predict": 400
-                    }
-                },
-                timeout=60
+            response = requests.get(
+                f"{self.ollama_url}/api/tags",
+                timeout=5
             )
-            response.raise_for_status()
-            result = response.json()
-            return result.get("response", "").strip()
+            if response.status_code == 200:
+                models = response.json().get("models", [])
+                model_names = [m.get("name", "") for m in models]
+                if self.ollama_model in model_names:
+                    return True
+                else:
+                    print(f"⚠ Model '{self.ollama_model}' not found. Available models: {', '.join(model_names[:3])}")
+                    return False
+            return False
         except Exception as e:
-            print(f"Ollama generation failed: {e}")
-            return f"Ollama generation failed: {str(e)}"
+            print(f"⚠ Ollama connection test failed: {e}")
+            return False
+    
+    def _estimate_tokens(self, text: str):
+        """Rough estimate of tokens (1 token ≈ 4 characters)"""
+        return len(text) // 4
+    
+    def _generate_with_ollama(self, prompt: str, max_new_tokens: int = 250):
+        """Generate answer using Ollama with improved API usage"""
+        # Estimate prompt length and adjust num_predict
+        prompt_tokens = self._estimate_tokens(prompt)
+        # Use chat API for better responses
+        use_chat_api = True
+        
+        # Determine num_predict based on query complexity
+        is_complex = any(word in prompt.lower() for word in ['explain', 'describe', 'how', 'why', 'compare'])
+        num_predict = max_new_tokens * 2 if is_complex else max_new_tokens
+        
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                if use_chat_api:
+                    # Use chat API format for better responses
+                    messages = [
+                        {
+                            "role": "system",
+                            "content": "You are a helpful AI assistant. Answer questions directly and concisely based on the provided documents."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ]
+                    
+                    response = requests.post(
+                        f"{self.ollama_url}/api/chat",
+                        json={
+                            "model": self.ollama_model,
+                            "messages": messages,
+                            "stream": False,
+                            "options": {
+                                "temperature": 0.7,
+                                "top_p": 0.9,
+                                "num_predict": num_predict,
+                                "repeat_penalty": 1.2
+                            }
+                        },
+                        timeout=self.ollama_timeout
+                    )
+                else:
+                    # Fallback to generate API
+                    response = requests.post(
+                        f"{self.ollama_url}/api/generate",
+                        json={
+                            "model": self.ollama_model,
+                            "prompt": prompt,
+                            "stream": False,
+                            "options": {
+                                "temperature": 0.7,
+                                "top_p": 0.9,
+                                "num_predict": num_predict,
+                                "repeat_penalty": 1.2
+                            }
+                        },
+                        timeout=self.ollama_timeout
+                    )
+                
+                response.raise_for_status()
+                result = response.json()
+                
+                if use_chat_api:
+                    answer = result.get("message", {}).get("content", "").strip()
+                else:
+                    answer = result.get("response", "").strip()
+                
+                if answer:
+                    return answer
+                else:
+                    return "I couldn't generate a response. Please try again."
+                    
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    print(f"[Retry {attempt + 1}/{max_retries}] Ollama request timed out, retrying...")
+                    time.sleep(1)
+                    continue
+                else:
+                    return f"Ollama request timed out after {self.ollama_timeout}s. The model may be processing a long response."
+            except requests.exceptions.ConnectionError:
+                return f"Could not connect to Ollama at {self.ollama_url}. Please ensure Ollama is running."
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"[Retry {attempt + 1}/{max_retries}] Ollama generation failed: {e}")
+                    time.sleep(1)
+                    continue
+                else:
+                    print(f"Ollama generation failed: {e}")
+                    return f"Ollama generation failed: {str(e)}"
+        
+        return "Failed to generate response after retries."
 # Global singleton instance
 _generator_instance = None
 

@@ -1,6 +1,7 @@
 # rag_system/ingestion/chunker.py
 
 import os
+import re
 from config.settings import CHUNK_SIZE, CHUNK_OVERLAP
 
 # Try to import nltk, fallback to simple splitting if not available
@@ -111,6 +112,64 @@ def normalize_text(text):
     # Fix multiple spaces
     text = ' '.join(text.split())
     return text.strip()
+
+def detect_structured_markers(text):
+    """Detect structured content markers like chapters, sections"""
+    markers = []
+    # Common patterns for structured content
+    patterns = [
+        (r'Chapter\s+\d+', 'chapter'),
+        (r'CHAPTER\s+\d+', 'chapter'),
+        (r'Section\s+\d+', 'section'),
+        (r'SECTION\s+\d+', 'section'),
+        (r'Part\s+\d+', 'part'),
+        (r'Appendix\s+[A-Z]', 'appendix'),
+    ]
+    
+    for pattern, marker_type in patterns:
+        matches = re.finditer(pattern, text, re.IGNORECASE)
+        for match in matches:
+            markers.append((match.start(), match.end(), marker_type, match.group()))
+    
+    return sorted(markers, key=lambda x: x[0])
+
+def preserve_structured_context(text, chunk_size, overlap):
+    """Ensure structured markers (chapters, sections) are preserved in chunks"""
+    markers = detect_structured_markers(text)
+    if not markers:
+        return None  # No structured content, use normal chunking
+    
+    # Split text preserving markers
+    chunks = []
+    current_pos = 0
+    
+    for marker_start, marker_end, marker_type, marker_text in markers:
+        # Add text before marker if significant
+        if marker_start > current_pos:
+            pre_text = text[current_pos:marker_start].strip()
+            if len(pre_text) > 50:
+                chunks.append(pre_text)
+        
+        # Include marker and following text
+        # Find next marker or end of text
+        next_marker_start = len(text)
+        marker_idx = markers.index((marker_start, marker_end, marker_type, marker_text))
+        if marker_idx + 1 < len(markers):
+            next_marker_start = markers[marker_idx + 1][0]
+        
+        marker_chunk = text[marker_start:next_marker_start].strip()
+        if marker_chunk:
+            chunks.append(marker_chunk)
+        
+        current_pos = next_marker_start
+    
+    # Add remaining text
+    if current_pos < len(text):
+        remaining = text[current_pos:].strip()
+        if remaining:
+            chunks.append(remaining)
+    
+    return chunks
 
 def process_files(input_dir, output_dir, chunk_size=None, chunk_overlap=None):
     """Process files with semantic-aware chunking (memory-efficient for large files)"""
