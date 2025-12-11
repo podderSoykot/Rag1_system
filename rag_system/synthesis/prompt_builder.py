@@ -26,45 +26,24 @@ def build_prompt(query: str, docs: list):
     
     # Create enhanced prompt with better structure
     if is_complex:
-        prompt = f"""You are an expert AI assistant specialized in answering questions based on provided documents. Your task is to provide accurate, detailed, and well-structured answers.
+        # Simplified but still structured for complex questions
+        prompt = f"""Based on the documents below, provide a detailed answer to the question.
 
-RELEVANT DOCUMENTS:
+Documents:
 {context}
 
-USER QUESTION: {query}
+Question: {query}
 
-ANSWERING GUIDELINES:
-1. **Accuracy**: Base your answer ONLY on the information provided in the documents above. Do not use external knowledge.
-2. **Completeness**: Provide a comprehensive answer that addresses all aspects of the question.
-3. **Structure**: Organize your answer logically:
-   - Start with a direct answer to the question
-   - Provide supporting details and explanations
-   - Include relevant examples or specifics from the documents when available
-4. **Citations**: When referencing specific information, mention which document it came from (e.g., "According to Document 1..." or "As stated in Document 2...").
-5. **Uncertainty**: If the documents do not contain sufficient information to fully answer the question, clearly state what information is missing or what aspects cannot be answered.
-
-EXAMPLE FORMAT:
-Question: "What is the main concept?"
-Answer: "The main concept is [direct answer]. According to Document 1, [supporting detail]. Additionally, Document 2 explains that [additional detail]."
-
-Now, provide your answer to the user's question:
-
-ANSWER:"""
+Answer (be detailed and use information from the documents):"""
     else:
-        prompt = f"""You are a helpful AI assistant. Answer the user's question using ONLY the information provided in the documents below.
+        # Simplified prompt for better TinyLlama performance
+        prompt = f"""Based on the following documents, answer the question directly and concisely.
 
-DOCUMENTS:
+Documents:
 {context}
 
-QUESTION: {query}
+Question: {query}
 
-INSTRUCTIONS:
-- Provide a clear, direct answer based on the documents above
-- If you reference specific information, mention the document number (e.g., "Document 1 states...")
-- If the documents don't contain enough information, say: "Based on the provided documents, I cannot fully answer this question. The documents do not contain sufficient information about [missing aspect]."
-- Be concise but complete
-- Use specific details and examples from the documents when available
-
-ANSWER:"""
+Answer (use only information from the documents above):"""
     
     return prompt

@@ -149,10 +149,12 @@ def run_ingestion(force=False):
     global _retriever_instance
     _retriever_instance = None
 
-def rag_pipeline(query: str, top_k: int = 3, use_cache: bool = None):
-    """RAG pipeline with optional result caching"""
+def rag_pipeline(query: str, top_k: int = 3, use_cache: bool = None, show_timing: bool = True):
+    """RAG pipeline with optional result caching and timing"""
     if use_cache is None:
         use_cache = CACHE_ENABLED
+    
+    total_start = time.time()
     
     # Check cache
     if use_cache:
@@ -160,17 +162,40 @@ def rag_pipeline(query: str, top_k: int = 3, use_cache: bool = None):
         if cache_key in _result_cache:
             global _cache_hits
             _cache_hits += 1
-            print(f"[Cache Hit] Returning cached result")
+            if show_timing:
+                total_time = time.time() - total_start
+                print(f"[Cache Hit] Returning cached result (Time: {total_time*1000:.0f}ms)")
             return _result_cache[cache_key]
     
     # Cache miss - perform retrieval and generation
     global _cache_misses
     _cache_misses += 1
     
+    # Retrieval timing
+    retrieval_start = time.time()
     retriever = get_retriever()
-    docs = retriever.search(query, top_k=top_k)
+    docs = retriever.search(query, top_k=top_k, show_timing=show_timing)
+    retrieval_time = time.time() - retrieval_start
+    
+    # Prompt building (usually very fast, but measure it)
+    prompt_start = time.time()
     prompt = build_prompt(query, docs)
+    prompt_time = time.time() - prompt_start
+    
+    # Generation timing
+    generation_start = time.time()
     answer = generate_answer(prompt)
+    generation_time = time.time() - generation_start
+    
+    total_time = time.time() - total_start
+    
+    # Display timing information
+    if show_timing:
+        print(f"\n[Timing]")
+        print(f"  Retrieval:  {retrieval_time*1000:.0f}ms")
+        print(f"  Prompt:     {prompt_time*1000:.0f}ms")
+        print(f"  Generation: {generation_time*1000:.0f}ms")
+        print(f"  Total:      {total_time*1000:.0f}ms ({total_time:.2f}s)")
     
     # Store in cache
     if use_cache:
@@ -183,18 +208,22 @@ def rag_pipeline(query: str, top_k: int = 3, use_cache: bool = None):
         _result_cache[cache_key] = answer
     
     return answer
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the RAG pipeline")
     parser.add_argument("--query", type=str, default=None, help="Single question to run non-interactively")
     parser.add_argument("--top_k", type=int, default=3, help="Number of chunks to retrieve")
     parser.add_argument("--force-ingestion", action="store_true", help="Force re-ingestion even if files are up to date")
+    parser.add_argument("--no-timing", action="store_true", help="Disable timing information")
     args = parser.parse_args()
+    
+    show_timing = not args.no_timing
     run_ingestion(force=args.force_ingestion)
     if args.query:
         print(f"\nProcessing: {args.query}")
         print("-" * 40)
         try:
-            answer = rag_pipeline(args.query, top_k=args.top_k)
+            answer = rag_pipeline(args.query, top_k=args.top_k, show_timing=show_timing)
             print(f"\nAnswer:\n{answer}")
             print("-" * 40)
         except Exception as e:
@@ -214,7 +243,7 @@ if __name__ == "__main__":
                 continue
             print(f"\nProcessing: {query}")
             print("-" * 40)
-            answer = rag_pipeline(query)
+            answer = rag_pipeline(query, show_timing=show_timing)
             print(f"\nAnswer:\n{answer}")
             print("-" * 40)
         except KeyboardInterrupt:

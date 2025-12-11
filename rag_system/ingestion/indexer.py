@@ -6,7 +6,18 @@ import re
 import numpy as np
 from collections import Counter
 from ingestion.embedder import get_embedding_model
-from config.settings import EMBEDDING_BATCH_SIZE
+from config.settings import (
+    EMBEDDING_BATCH_SIZE, USE_PINECONE, PINECONE_API_KEY, 
+    PINECONE_INDEX_NAME, PINECONE_ENVIRONMENT, PINECONE_DIMENSION
+)
+
+# Try to import Pinecone
+try:
+    from pinecone import Pinecone, ServerlessSpec
+    HAS_PINECONE = True
+except ImportError:
+    HAS_PINECONE = False
+    print("[Warning] Pinecone not available. Install with: pip install pinecone-client")
 
 # Try to import FAISS, fallback to simple vector storage if not available
 try:
@@ -148,34 +159,113 @@ def index_documents(input_dir: str, db_dir: str, model_name: str):
     embeddings_array = np.array(embeddings, dtype=np.float32)
     embedding_dim = embeddings_array.shape[1]
     
-    # Store embeddings using FAISS or simple numpy storage (75-85%)
+    # Store embeddings using Pinecone, FAISS, or simple numpy storage (75-85%)
     print(f"  Creating vector index... (75% - 85%)", end="", flush=True)
-    if HAS_FAISS:
-        # Create FAISS index
-        index = faiss.IndexFlatL2(embedding_dim)  # L2 distance (Euclidean)
-        index.add(embeddings_array)
-        
-        # Save FAISS index
-        faiss_path = os.path.join(db_dir, "faiss_index.bin")
-        faiss.write_index(index, faiss_path)
-        print(f" ✓ FAISS index saved")
-    else:
-        # Fallback: save as numpy array
-        embeddings_path = os.path.join(db_dir, "embeddings.npy")
-        np.save(embeddings_path, embeddings_array)
-        print(f" ✓ Numpy embeddings saved")
     
-    # Save document metadata and IDs
-    print(f"  Saving metadata... (85% - 90%)", end="", flush=True)
-    metadata_path = os.path.join(db_dir, "vector_metadata.pkl")
-    with open(metadata_path, "wb") as f:
-        pickle.dump({
-            "documents": documents,
-            "metadatas": metadatas,
-            "ids": ids,
-            "embedding_dim": embedding_dim
-        }, f)
-    print(f" ✓")
+    use_pinecone_success = False
+    if USE_PINECONE and HAS_PINECONE and PINECONE_API_KEY:
+        # Use Pinecone for vector storage
+        try:
+            pc = Pinecone(api_key=PINECONE_API_KEY)
+            
+            # Check if index exists, create if not
+            existing_indexes = [idx.name for idx in pc.list_indexes()]
+            
+            if PINECONE_INDEX_NAME not in existing_indexes:
+                print(f"\n    Creating Pinecone index '{PINECONE_INDEX_NAME}'...", end="", flush=True)
+                pc.create_index(
+                    name=PINECONE_INDEX_NAME,
+                    dimension=embedding_dim,
+                    metric="cosine",
+                    spec=ServerlessSpec(cloud="aws", region=PINECONE_ENVIRONMENT)
+                )
+                print(f" ✓")
+            else:
+                print(f"\n    Using existing Pinecone index '{PINECONE_INDEX_NAME}'...", end="", flush=True)
+            
+            # Connect to index
+            index = pc.Index(PINECONE_INDEX_NAME)
+            
+            # Upload vectors in batches (Pinecone recommends batches of 100)
+            print(f"    Uploading {total_docs} vectors to Pinecone...")
+            pinecone_batch_size = 100
+            vectors_to_upload = []
+            
+            for i in range(total_docs):
+                vector_data = {
+                    "id": ids[i],
+                    "values": embeddings[i],
+                    "metadata": {
+                        "text": documents[i][:1000],  # Store first 1000 chars in metadata
+                        "source": metadatas[i]["source"],
+                        "chunk_id": metadatas[i]["chunk_id"]
+                    }
+                }
+                vectors_to_upload.append(vector_data)
+                
+                # Upload in batches
+                if len(vectors_to_upload) >= pinecone_batch_size:
+                    index.upsert(vectors=vectors_to_upload)
+                    vectors_to_upload = []
+                    print(f"      Uploaded {min(i+1, total_docs)}/{total_docs} vectors...", end="\r", flush=True)
+            
+            # Upload remaining vectors
+            if vectors_to_upload:
+                index.upsert(vectors=vectors_to_upload)
+            
+            print(f"    ✓ All {total_docs} vectors uploaded to Pinecone")
+            
+            # Save metadata locally for retrieval (Pinecone metadata has size limits)
+            metadata_path = os.path.join(db_dir, "vector_metadata.pkl")
+            with open(metadata_path, "wb") as f:
+                pickle.dump({
+                    "documents": documents,
+                    "metadatas": metadatas,
+                    "ids": ids,
+                    "embedding_dim": embedding_dim,
+                    "use_pinecone": True,
+                    "pinecone_index_name": PINECONE_INDEX_NAME
+                }, f)
+            
+            use_pinecone_success = True
+            
+        except Exception as e:
+            print(f"\n    [Warning] Pinecone upload failed: {e}")
+            print(f"    Falling back to local storage...")
+            use_pinecone_success = False
+    
+    if not use_pinecone_success:
+        # Use FAISS or numpy storage (fallback)
+        if HAS_FAISS:
+            # Create FAISS index
+            index = faiss.IndexFlatL2(embedding_dim)  # L2 distance (Euclidean)
+            index.add(embeddings_array)
+            
+            # Save FAISS index
+            faiss_path = os.path.join(db_dir, "faiss_index.bin")
+            faiss.write_index(index, faiss_path)
+            print(f" ✓ FAISS index saved")
+        else:
+            # Fallback: save as numpy array
+            embeddings_path = os.path.join(db_dir, "embeddings.npy")
+            np.save(embeddings_path, embeddings_array)
+            print(f" ✓ Numpy embeddings saved")
+        
+        # Save document metadata and IDs
+        metadata_path = os.path.join(db_dir, "vector_metadata.pkl")
+        with open(metadata_path, "wb") as f:
+            pickle.dump({
+                "documents": documents,
+                "metadatas": metadatas,
+                "ids": ids,
+                "embedding_dim": embedding_dim,
+                "use_pinecone": False
+            }, f)
+    
+    # Metadata is saved above (either with Pinecone or local storage)
+    if not use_pinecone_success:
+        print(f"  Saving metadata... (85% - 90%)", end="", flush=True)
+        print(f" ✓")
     
     # Also create TF-IDF index for hybrid search fallback (90-100%)
     print(f"  Creating TF-IDF index... (90% - 100%)", end="", flush=True)

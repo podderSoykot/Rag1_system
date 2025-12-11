@@ -104,6 +104,14 @@ def create_chunks_with_overlap(sentences, chunk_size, overlap):
     
     return chunks
 
+def normalize_text(text):
+    """Normalize text by joining broken lines and fixing spacing"""
+    # Replace multiple newlines with single space
+    text = text.replace('\n', ' ')
+    # Fix multiple spaces
+    text = ' '.join(text.split())
+    return text.strip()
+
 def process_files(input_dir, output_dir, chunk_size=None, chunk_overlap=None):
     """Process files with semantic-aware chunking (memory-efficient for large files)"""
     if chunk_size is None:
@@ -142,91 +150,124 @@ def process_files(input_dir, output_dir, chunk_size=None, chunk_overlap=None):
         print(f"  Chunking {filename} ({idx}/{total_files}) - {progress}%")
         print(f"    Processing file in chunks to avoid memory issues...", end="", flush=True)
 
-        # Memory-efficient chunking: process and write incrementally
+        # Read entire file and normalize (for better sentence detection)
+        # But process in sections to avoid memory issues
         chunk_count = 0
         current_chunk = []
         current_length = 0
-        overlap_buffer = []
         
-        # Process file in smaller sections
         with open(input_path, "r", encoding="utf-8") as infile, \
              open(output_path, "w", encoding="utf-8") as outfile:
             
-            # Read file in chunks to avoid loading entire file into memory
-            buffer = ""
-            chunk_read_size = 1024 * 1024  # 1MB at a time
+            # Read file in sections, normalize each section
+            section_size = 500 * 1024  # 500KB sections
+            text_buffer = ""
             
             while True:
-                chunk_text = infile.read(chunk_read_size)
-                if not chunk_text:
-                    # Process remaining buffer
-                    if buffer:
-                        sentences = split_into_sentences(buffer)
-                        for sentence in sentences:
-                            sentence_length = len(sentence)
-                            
-                            # If adding this sentence would exceed chunk size
-                            if current_length + sentence_length + 1 > chunk_size and current_chunk:
-                                # Write current chunk
-                                chunk_text = ' '.join(current_chunk)
-                                if len(chunk_text.strip()) > 50:
-                                    outfile.write(chunk_text.strip() + "\n")
-                                    chunk_count += 1
-                                
-                                # Start new chunk with overlap
-                                overlap_buffer = current_chunk[-3:] if len(current_chunk) >= 3 else current_chunk
-                                current_chunk = overlap_buffer.copy()
-                                current_length = sum(len(s) for s in current_chunk)
-                            
-                            current_chunk.append(sentence)
-                            current_length += sentence_length + 1
+                section = infile.read(section_size)
+                if not section and not text_buffer:
                     break
                 
-                buffer += chunk_text
+                # Add section to buffer
+                text_buffer += section
                 
                 # Process complete sentences from buffer
+                # Look for sentence endings: . ! ? followed by space and capital letter or end of text
                 while True:
-                    # Try to find sentence boundaries
-                    period_idx = buffer.find('. ')
-                    exclamation_idx = buffer.find('! ')
-                    question_idx = buffer.find('? ')
+                    # Find sentence boundaries more intelligently
+                    # Look for: . ! ? followed by space and capital, or end of text
+                    best_match = None
+                    best_pos = len(text_buffer)
                     
-                    # Find the earliest sentence boundary
-                    boundaries = [i for i in [period_idx, exclamation_idx, question_idx] if i != -1]
-                    if not boundaries:
-                        # No complete sentence found, read more
-                        break
+                    # Try to find sentence endings
+                    for end_char in ['.', '!', '?']:
+                        pos = text_buffer.find(end_char, 0, best_pos)
+                        while pos != -1:
+                            # Check if followed by space and capital letter, or end of text
+                            if pos + 1 < len(text_buffer):
+                                next_char = text_buffer[pos + 1]
+                                if next_char in [' ', '\n', '\t']:
+                                    # Check next non-whitespace character
+                                    next_non_ws = pos + 2
+                                    while next_non_ws < len(text_buffer) and text_buffer[next_non_ws] in [' ', '\n', '\t']:
+                                        next_non_ws += 1
+                                    if next_non_ws >= len(text_buffer):
+                                        # End of buffer
+                                        best_match = pos + 1
+                                        best_pos = pos
+                                        break
+                                    elif text_buffer[next_non_ws].isupper() or text_buffer[next_non_ws].isdigit():
+                                        # Capital letter or number - likely sentence boundary
+                                        best_match = pos + 1
+                                        best_pos = pos
+                                        break
+                            else:
+                                # End of buffer
+                                best_match = pos + 1
+                                best_pos = pos
+                                break
+                            
+                            # Continue searching
+                            pos = text_buffer.find(end_char, pos + 1, best_pos)
                     
-                    sentence_end = min(boundaries) + 1
-                    sentence = buffer[:sentence_end].strip()
-                    buffer = buffer[sentence_end:].strip()
+                    # If no sentence boundary found, read more
+                    if best_match is None:
+                        # If we've read the whole file, process remaining buffer
+                        if not section:
+                            best_match = len(text_buffer)
+                        else:
+                            break
                     
-                    if not sentence:
+                    # Extract sentence
+                    sentence_text = text_buffer[:best_match].strip()
+                    text_buffer = text_buffer[best_match:].strip()
+                    
+                    # Normalize the sentence
+                    sentence_text = normalize_text(sentence_text)
+                    
+                    if not sentence_text or len(sentence_text) < 10:
                         continue
                     
-                    sentence_length = len(sentence)
+                    sentence_length = len(sentence_text)
                     
                     # If adding this sentence would exceed chunk size
                     if current_length + sentence_length + 1 > chunk_size and current_chunk:
                         # Write current chunk
                         chunk_text = ' '.join(current_chunk)
-                        if len(chunk_text.strip()) > 50:
-                            outfile.write(chunk_text.strip() + "\n")
+                        chunk_text = normalize_text(chunk_text)
+                        if len(chunk_text.strip()) >= 100:  # Minimum meaningful chunk
+                            outfile.write(chunk_text.strip() + "\n\n")
                             chunk_count += 1
                         
-                        # Start new chunk with overlap
-                        overlap_buffer = current_chunk[-3:] if len(current_chunk) >= 3 else current_chunk
-                        current_chunk = overlap_buffer.copy()
-                        current_length = sum(len(s) for s in current_chunk)
+                        # Start new chunk with proper overlap
+                        # Calculate overlap based on chunk_overlap size, not fixed number of sentences
+                        overlap_text = ""
+                        overlap_length = 0
+                        for sent in reversed(current_chunk):
+                            test_overlap = sent + " " + overlap_text
+                            if len(test_overlap.strip()) <= chunk_overlap:
+                                overlap_text = test_overlap
+                                overlap_length = len(overlap_text)
+                            else:
+                                break
+                        
+                        if overlap_text:
+                            current_chunk = [overlap_text.strip()]
+                            current_length = overlap_length
+                        else:
+                            current_chunk = []
+                            current_length = 0
                     
-                    current_chunk.append(sentence)
+                    # Add sentence to current chunk
+                    current_chunk.append(sentence_text)
                     current_length += sentence_length + 1
             
             # Write final chunk
             if current_chunk:
                 chunk_text = ' '.join(current_chunk)
-                if len(chunk_text.strip()) > 50:
-                    outfile.write(chunk_text.strip() + "\n")
+                chunk_text = normalize_text(chunk_text)
+                if len(chunk_text.strip()) >= 100:
+                    outfile.write(chunk_text.strip() + "\n\n")
                     chunk_count += 1
 
         processed_count += 1

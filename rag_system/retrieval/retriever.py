@@ -9,13 +9,21 @@ from ingestion.embedder import get_embedding_model
 from config.settings import (
     USE_HYBRID_SEARCH, SEMANTIC_WEIGHT, TFIDF_WEIGHT,
     USE_RERANKING, RERANK_TOP_K, USE_QUERY_EXPANSION,
-    MIN_CHUNK_LENGTH, LENGTH_BOOST_FACTOR
+    MIN_CHUNK_LENGTH, LENGTH_BOOST_FACTOR,
+    USE_PINECONE, PINECONE_API_KEY, PINECONE_INDEX_NAME
 )
 try:
     from retrieval.query_expansion import expand_query
 except ImportError:
     def expand_query(query: str):
         return [query]
+
+# Try to import Pinecone
+try:
+    from pinecone import Pinecone
+    HAS_PINECONE = True
+except ImportError:
+    HAS_PINECONE = False
 
 # Try to import FAISS
 try:
@@ -35,36 +43,56 @@ class Retriever:
         self.db_dir = db_dir
         self.model_name = model_name
         
-        # Load vector index (FAISS or numpy)
+        # Load vector index (Pinecone, FAISS, or numpy)
         self.use_vector_search = False
+        self.use_pinecone = False
         self.vector_index = None
+        self.pinecone_index = None
         self.vector_metadata = None
         
-        # Try FAISS first
-        faiss_path = os.path.join(db_dir, "faiss_index.bin")
-        embeddings_path = os.path.join(db_dir, "embeddings.npy")
         metadata_path = os.path.join(db_dir, "vector_metadata.pkl")
         
-        if HAS_FAISS and os.path.exists(faiss_path) and os.path.exists(metadata_path):
+        # Try Pinecone first if enabled
+        if USE_PINECONE and HAS_PINECONE and PINECONE_API_KEY and os.path.exists(metadata_path):
             try:
-                self.vector_index = faiss.read_index(faiss_path)
                 with open(metadata_path, "rb") as f:
-                    self.vector_metadata = pickle.load(f)
-                self.use_vector_search = True
-                print(f"[OK] Loaded FAISS index with {len(self.vector_metadata['documents'])} documents")
+                    metadata = pickle.load(f)
+                
+                if metadata.get("use_pinecone", False):
+                    pc = Pinecone(api_key=PINECONE_API_KEY)
+                    self.pinecone_index = pc.Index(metadata.get("pinecone_index_name", PINECONE_INDEX_NAME))
+                    self.vector_metadata = metadata
+                    self.use_pinecone = True
+                    self.use_vector_search = True
+                    print(f"[OK] Connected to Pinecone index '{metadata.get('pinecone_index_name', PINECONE_INDEX_NAME)}' with {len(metadata['documents'])} documents")
             except Exception as e:
-                print(f"[Warning] FAISS index loading failed: {e}")
+                print(f"[Warning] Pinecone connection failed: {e}")
         
-        # Fallback to numpy embeddings
-        if not self.use_vector_search and os.path.exists(embeddings_path) and os.path.exists(metadata_path):
-            try:
-                self.embeddings_array = np.load(embeddings_path)
-                with open(metadata_path, "rb") as f:
-                    self.vector_metadata = pickle.load(f)
-                self.use_vector_search = True
-                print(f"[OK] Loaded numpy embeddings with {len(self.vector_metadata['documents'])} documents")
-            except Exception as e:
-                print(f"[Warning] Numpy embeddings loading failed: {e}")
+        # Try FAISS if Pinecone not available
+        if not self.use_pinecone:
+            faiss_path = os.path.join(db_dir, "faiss_index.bin")
+            embeddings_path = os.path.join(db_dir, "embeddings.npy")
+            
+            if HAS_FAISS and os.path.exists(faiss_path) and os.path.exists(metadata_path):
+                try:
+                    self.vector_index = faiss.read_index(faiss_path)
+                    with open(metadata_path, "rb") as f:
+                        self.vector_metadata = pickle.load(f)
+                    self.use_vector_search = True
+                    print(f"[OK] Loaded FAISS index with {len(self.vector_metadata['documents'])} documents")
+                except Exception as e:
+                    print(f"[Warning] FAISS index loading failed: {e}")
+            
+            # Fallback to numpy embeddings
+            if not self.use_vector_search and os.path.exists(embeddings_path) and os.path.exists(metadata_path):
+                try:
+                    self.embeddings_array = np.load(embeddings_path)
+                    with open(metadata_path, "rb") as f:
+                        self.vector_metadata = pickle.load(f)
+                    self.use_vector_search = True
+                    print(f"[OK] Loaded numpy embeddings with {len(self.vector_metadata['documents'])} documents")
+                except Exception as e:
+                    print(f"[Warning] Numpy embeddings loading failed: {e}")
         
         # Load TF-IDF index (for hybrid search or fallback)
         index_path = os.path.join(db_dir, "tfidf_index.pkl")
@@ -98,7 +126,7 @@ class Retriever:
                 print(f"[Warning] Reranking model not available: {e}")
 
     def _semantic_search(self, query: str, top_k: int):
-        """Perform semantic search using FAISS or numpy"""
+        """Perform semantic search using Pinecone, FAISS, or numpy"""
         if not self.use_vector_search or not self.vector_metadata:
             return []
         
@@ -107,8 +135,45 @@ class Retriever:
             query_embedding = self.embedding_model.encode(query, show_progress_bar=False)
             query_vector = np.array([query_embedding], dtype=np.float32)
             
+            # Search using Pinecone
+            if self.use_pinecone and self.pinecone_index is not None:
+                # Pinecone search
+                results = self.pinecone_index.query(
+                    vector=query_embedding.tolist(),
+                    top_k=min(top_k * 2, 100),  # Get more candidates for filtering
+                    include_metadata=True
+                )
+                
+                # Process results
+                search_results = []
+                for match in results.matches:
+                    doc_id = match.id
+                    similarity = match.score  # Cosine similarity (0-1)
+                    
+                    # Get full document text from metadata
+                    if doc_id in self.vector_metadata.get("ids", []):
+                        idx = self.vector_metadata["ids"].index(doc_id)
+                        doc = self.vector_metadata["documents"][idx]
+                    else:
+                        # Fallback to metadata text
+                        doc = match.metadata.get("text", "")
+                    
+                    # Filter out very short chunks
+                    if len(doc.strip()) < MIN_CHUNK_LENGTH:
+                        continue
+                    
+                    # Boost score for longer chunks
+                    length_boost = min(len(doc) / 1000.0, 1.0) * LENGTH_BOOST_FACTOR
+                    similarity = similarity + length_boost
+                    
+                    search_results.append((doc, similarity))
+                
+                # Sort by boosted similarity
+                search_results.sort(key=lambda x: x[1], reverse=True)
+                return search_results[:top_k * 2]
+            
             # Search using FAISS - get more candidates to filter
-            if HAS_FAISS and self.vector_index is not None:
+            elif HAS_FAISS and self.vector_index is not None:
                 # FAISS search - get more results for filtering
                 k = min(top_k * 5, len(self.vector_metadata['documents']), 100)
                 distances, indices = self.vector_index.search(query_vector, k)
@@ -249,8 +314,10 @@ class Retriever:
             print(f"[Warning] Reranking failed: {e}")
             return candidates[:top_k]
 
-    def search(self, query: str, top_k: int = 3):
+    def search(self, query: str, top_k: int = 3, show_timing: bool = False):
         """Hybrid search combining semantic and TF-IDF"""
+        import time
+        
         # Expand query if enabled
         if USE_QUERY_EXPANSION:
             expanded_queries = expand_query(query)
@@ -259,13 +326,23 @@ class Retriever:
         
         # Perform semantic search
         semantic_results = []
+        semantic_time = 0
         if self.use_vector_search:
+            semantic_start = time.time()
             semantic_results = self._semantic_search(query, top_k * 2)
+            semantic_time = time.time() - semantic_start
+            if show_timing:
+                print(f"    Semantic search: {semantic_time*1000:.0f}ms")
         
         # Perform TF-IDF search
         tfidf_results = []
+        tfidf_time = 0
         if self.use_tfidf:
+            tfidf_start = time.time()
             tfidf_results = self._tfidf_search(query, top_k * 2)
+            tfidf_time = time.time() - tfidf_start
+            if show_timing:
+                print(f"    TF-IDF search: {tfidf_time*1000:.0f}ms")
         
         # Combine results
         if USE_HYBRID_SEARCH and semantic_results and tfidf_results:
