@@ -94,6 +94,12 @@ def clean_answer(answer: str) -> str:
     # Improve list formatting
     cleaned = extract_lists(cleaned)
     
+    # Fix capitalization at the start
+    cleaned = cleaned.strip()
+    if cleaned and cleaned[0].islower():
+        # Capitalize first letter if it's lowercase
+        cleaned = cleaned[0].upper() + cleaned[1:]
+    
     # Remove excessive whitespace
     cleaned = re.sub(r'\s+', ' ', cleaned)
     cleaned = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned)
