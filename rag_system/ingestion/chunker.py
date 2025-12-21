@@ -2,7 +2,6 @@
 
 import os
 import re
-from tqdm import tqdm
 from config.settings import CHUNK_SIZE, CHUNK_OVERLAP
 
 # Try to import nltk, fallback to simple splitting if not available
@@ -109,9 +108,6 @@ def create_chunks_with_overlap(sentences, chunk_size, overlap):
 def normalize_text(text):
     """Normalize text by joining broken lines and fixing spacing"""
     import re
-    # Fix merged words (lowercase followed by capital - like "beenimportant" -> "been important")
-    text = re.sub(r'([a-z])([A-Z][a-z]+)', r'\1 \2', text)
-    
     # Fix spaces within words (common PDF extraction issue)
     # Pattern: short word sequences with spaces (likely broken words)
     # Only fix very short sequences to avoid breaking legitimate spaces
@@ -217,32 +213,16 @@ def process_files(input_dir, output_dir, chunk_size=None, chunk_overlap=None):
         progress = 25 + int((idx / total_files) * 25)
         
         print(f"  Chunking {filename} ({idx}/{total_files}) - {progress}%")
-        
-        # Get file size for progress tracking
-        file_size = os.path.getsize(input_path)
-        file_size_mb = file_size / (1024 * 1024)
-        
+        print(f"    Processing file in chunks to avoid memory issues...", end="", flush=True)
+
         # Read entire file and normalize (for better sentence detection)
         # But process in sections to avoid memory issues
         chunk_count = 0
         current_chunk = []
         current_length = 0
-        bytes_processed = 0
         
         with open(input_path, "r", encoding="utf-8") as infile, \
              open(output_path, "w", encoding="utf-8") as outfile:
-            
-            # Create progress bar
-            pbar = tqdm(
-                total=file_size,
-                unit='B',
-                unit_scale=True,
-                unit_divisor=1024,
-                desc=f"    Chunking",
-                bar_format='{l_bar}{bar}| {percentage:3.0f}% [{elapsed}<{remaining}, {rate_fmt}] {postfix}',
-                leave=False,
-                miniters=1024*50  # Update every 50KB to reduce overhead
-            )
             
             # Read file in sections, normalize each section
             section_size = 500 * 1024  # 500KB sections
@@ -252,14 +232,6 @@ def process_files(input_dir, output_dir, chunk_size=None, chunk_overlap=None):
                 section = infile.read(section_size)
                 if not section and not text_buffer:
                     break
-                
-                # Update progress bar with bytes read (approximate)
-                bytes_read = len(section.encode('utf-8'))
-                bytes_processed += bytes_read
-                pbar.update(bytes_read)
-                # Update postfix to show current chunk count
-                if chunk_count > 0:
-                    pbar.set_postfix_str(f'chunks: {chunk_count}')
                 
                 # Add section to buffer
                 text_buffer += section
@@ -331,8 +303,6 @@ def process_files(input_dir, output_dir, chunk_size=None, chunk_overlap=None):
                         if len(chunk_text.strip()) >= 100:  # Minimum meaningful chunk
                             outfile.write(chunk_text.strip() + "\n\n")
                             chunk_count += 1
-                            # Update progress bar with chunk count
-                            pbar.set_postfix_str(f'chunks: {chunk_count}')
                         
                         # Start new chunk with proper overlap
                         # Calculate overlap based on chunk_overlap size, not fixed number of sentences
@@ -364,12 +334,9 @@ def process_files(input_dir, output_dir, chunk_size=None, chunk_overlap=None):
                 if len(chunk_text.strip()) >= 100:
                     outfile.write(chunk_text.strip() + "\n\n")
                     chunk_count += 1
-            
-            # Close progress bar
-            pbar.close()
 
         processed_count += 1
-        print(f"    ✓ {chunk_count} chunks created ({file_size_mb:.1f} MB processed)")
+        print(f" ✓ {chunk_count} chunks created")
     
     if skipped_count > 0:
         print(f"  ({skipped_count} file(s) skipped - already chunked)")
