@@ -29,33 +29,33 @@ def build_prompt(query: str, docs: list):
     # Create optimized prompts based on query type
     if is_list_query:
         # For list queries, emphasize extracting items
-        prompt = f"""Extract and list the information requested from these documents.
+        prompt = f"""Extract and list ALL the information requested from these documents. Be comprehensive and include all relevant items.
 
 Documents:
 {context}
 
 Question: {query}
 
-Provide a clear list or enumeration based on the documents:"""
+Provide a complete, comprehensive list or enumeration based on the documents. Include all items mentioned:"""
     elif is_complex:
         # For complex questions, provide structured guidance
-        prompt = f"""Answer the question using information from the documents below.
+        prompt = f"""Answer the question completely using information from the documents below. Provide a thorough, detailed explanation.
 
 Documents:
 {context}
 
 Question: {query}
 
-Provide a detailed answer with specific information from the documents:"""
+Provide a complete, detailed answer with all relevant information from the documents. Be comprehensive and thorough:"""
     else:
         # Simple direct answer prompt
-        prompt = f"""Answer the question using only the information in these documents.
+        prompt = f"""Answer the question completely using only the information in these documents. Provide a full, comprehensive answer.
 
 Documents:
 {context}
 
 Question: {query}
 
-Answer:"""
+Provide a complete answer:"""
     
     return prompt

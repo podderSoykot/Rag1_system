@@ -1,6 +1,28 @@
 import os
+import re
 from pypdf import PdfReader
 from pathlib import Path
+
+def fix_pdf_text_spacing(text):
+    """Fix common PDF extraction issues: spaces within words, broken lines"""
+    if not text:
+        return text
+    
+    # Fix broken words at line boundaries first (word-space-newline-word)
+    text = re.sub(r'(\w)\s+\n\s*(\w)', r'\1\2', text)
+    
+    # Fix spaces within short word sequences (common PDF issue)
+    # Pattern: 1-2 letter sequence, space, 1-2 letter sequence (likely a broken word)
+    # This is conservative to avoid breaking legitimate spaces
+    text = re.sub(r'\b([a-zA-Z]{1,2})\s+([a-zA-Z]{1,2})\b', r'\1\2', text)
+    
+    # Fix multiple spaces
+    text = re.sub(r' +', ' ', text)
+    
+    # Normalize newlines (keep single newlines, remove multiple)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    return text.strip()
 
 def process_pdfs(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
@@ -37,6 +59,8 @@ def process_pdfs(input_dir, output_dir):
         print(f"    Extracting text from {total_pages} pages...", end="", flush=True)
         
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        # Fix common PDF text extraction issues
+        text = fix_pdf_text_spacing(text)
         with open(txt_path, "w", encoding="utf-8") as f:
             f.write(text)
         
