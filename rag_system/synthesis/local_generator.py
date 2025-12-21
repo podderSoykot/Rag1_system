@@ -1,9 +1,7 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 import requests
-import json
-import time
-from config.settings import USE_OLLAMA, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT
+from config.settings import USE_OLLAMA, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT, MAX_ANSWER_TOKENS
 
 class LocalLLMGenerator:
     _instance = None
@@ -53,14 +51,16 @@ class LocalLLMGenerator:
         except Exception as e:
             print(f"Failed to load RAG model {model_name}: {e}")
             raise Exception(f"Model loading failed: {e}")
-    def generate_answer(self, prompt: str, max_new_tokens: int = 250):
+    def generate_answer(self, prompt: str, max_new_tokens: int = None, query: str = None):
         try:
+            if max_new_tokens is None:
+                max_new_tokens = MAX_ANSWER_TOKENS
             if self.use_ollama:
-                return self._generate_with_ollama(prompt, max_new_tokens)
+                return self._generate_with_ollama(prompt, max_new_tokens, query=query)
             chat_supported = hasattr(self.tokenizer, "apply_chat_template") and self.tokenizer.chat_template is not None
             if chat_supported:
                 chat_messages = [
-                    {"role": "system", "content": "You are a helpful AI assistant for question answering over provided documents."},
+                    {"role": "system", "content": "You are a helpful AI assistant. Provide complete, detailed answers based on the provided documents. Be thorough and include all relevant information."},
                     {"role": "user", "content": prompt}
                 ]
                 rendered_prompt = self.tokenizer.apply_chat_template(
@@ -145,43 +145,61 @@ class LocalLLMGenerator:
         """Rough estimate of tokens (1 token ≈ 4 characters)"""
         return len(text) // 4
     
-    def _generate_with_ollama(self, prompt: str, max_new_tokens: int = 250):
-        """Generate answer using Ollama with improved API usage"""
-        # Estimate prompt length and adjust num_predict
-        prompt_tokens = self._estimate_tokens(prompt)
+    def _generate_with_ollama(self, prompt: str, max_new_tokens: int = None, query: str = None):
+        """Generate answer using Ollama with dynamic continuation for complete answers"""
+        from synthesis.postprocessor import detect_incomplete_answer
+        
+        if max_new_tokens is None:
+            max_new_tokens = MAX_ANSWER_TOKENS
+        
         # Use chat API for better responses
         use_chat_api = True
         
         # Determine num_predict based on query complexity
-        is_complex = any(word in prompt.lower() for word in ['explain', 'describe', 'how', 'why', 'compare'])
-        num_predict = max_new_tokens * 2 if is_complex else max_new_tokens
+        is_complex = any(word in prompt.lower() for word in ['explain', 'describe', 'how', 'why', 'compare', 'list', 'what are'])
+        # Start with base tokens, will increase dynamically if needed
+        base_num_predict = max_new_tokens * 2 if is_complex else max_new_tokens
         
-        max_retries = 2
-        for attempt in range(max_retries):
+        # Dynamic generation: continue until answer is complete
+        full_answer = ""
+        conversation_messages = []
+        max_iterations = 3  # Maximum continuation attempts
+        current_num_predict = base_num_predict
+        
+        for iteration in range(max_iterations):
             try:
                 if use_chat_api:
-                    # Use chat API format for better responses
-                    messages = [
-                        {
-                            "role": "system",
-                            "content": "You are a helpful AI assistant. Answer questions directly and concisely based on the provided documents."
-                        },
-                        {
+                    # Build conversation history
+                    if not conversation_messages:
+                        # First iteration
+                        conversation_messages = [
+                            {
+                                "role": "system",
+                                "content": "You are a helpful AI assistant. Provide complete, detailed answers based on the provided documents. Be thorough and include all relevant information from the documents. Always finish your thoughts completely."
+                            },
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ]
+                    else:
+                        # Continuation: ask to complete the answer
+                        continuation_prompt = "Please continue and complete your answer. Provide the remaining information."
+                        conversation_messages.append({
                             "role": "user",
-                            "content": prompt
-                        }
-                    ]
+                            "content": continuation_prompt
+                        })
                     
                     response = requests.post(
                         f"{self.ollama_url}/api/chat",
                         json={
                             "model": self.ollama_model,
-                            "messages": messages,
+                            "messages": conversation_messages,
                             "stream": False,
                             "options": {
                                 "temperature": 0.7,
                                 "top_p": 0.9,
-                                "num_predict": num_predict,
+                                "num_predict": current_num_predict,
                                 "repeat_penalty": 1.2
                             }
                         },
@@ -189,16 +207,21 @@ class LocalLLMGenerator:
                     )
                 else:
                     # Fallback to generate API
+                    if iteration == 0:
+                        full_prompt = prompt
+                    else:
+                        full_prompt = f"{prompt}\n\nPlease continue and complete your answer: {full_answer}"
+                    
                     response = requests.post(
                         f"{self.ollama_url}/api/generate",
                         json={
                             "model": self.ollama_model,
-                            "prompt": prompt,
+                            "prompt": full_prompt,
                             "stream": False,
                             "options": {
                                 "temperature": 0.7,
                                 "top_p": 0.9,
-                                "num_predict": num_predict,
+                                "num_predict": current_num_predict,
                                 "repeat_penalty": 1.2
                             }
                         },
@@ -209,34 +232,70 @@ class LocalLLMGenerator:
                 result = response.json()
                 
                 if use_chat_api:
-                    answer = result.get("message", {}).get("content", "").strip()
+                    new_content = result.get("message", {}).get("content", "").strip()
+                    # Add assistant response to conversation
+                    conversation_messages.append({
+                        "role": "assistant",
+                        "content": new_content
+                    })
                 else:
-                    answer = result.get("response", "").strip()
+                    new_content = result.get("response", "").strip()
                 
-                if answer:
-                    return answer
+                if new_content:
+                    if iteration == 0:
+                        full_answer = new_content
+                    else:
+                        # Append continuation, avoiding repetition
+                        if new_content not in full_answer:
+                            full_answer += " " + new_content
+                    
+                    # Check if answer is complete
+                    if query:
+                        is_incomplete, reason = detect_incomplete_answer(full_answer, query)
+                        if not is_incomplete:
+                            # Answer appears complete
+                            return full_answer
+                        # If incomplete and we have iterations left, continue
+                        if iteration < max_iterations - 1:
+                            # Increase tokens for next iteration
+                            current_num_predict = int(current_num_predict * 1.5)
+                            continue
+                    else:
+                        # No query provided, check basic completeness
+                        if len(full_answer) > 200 and full_answer.strip().endswith(('.', '!', '?')):
+                            return full_answer
+                        # Continue if seems incomplete
+                        if iteration < max_iterations - 1 and len(full_answer) < 300:
+                            current_num_predict = int(current_num_predict * 1.5)
+                            continue
+                    
+                    # Return what we have
+                    return full_answer
                 else:
-                    return "I couldn't generate a response. Please try again."
+                    if iteration == 0:
+                        return "I couldn't generate a response. Please try again."
+                    # If continuation failed, return what we have
+                    return full_answer if full_answer else "I couldn't generate a complete response."
                     
             except requests.exceptions.Timeout:
-                if attempt < max_retries - 1:
-                    print(f"[Retry {attempt + 1}/{max_retries}] Ollama request timed out, retrying...")
-                    time.sleep(1)
-                    continue
-                else:
-                    return f"Ollama request timed out after {self.ollama_timeout}s. The model may be processing a long response."
+                if iteration == 0:
+                    return f"Ollama request timed out after {self.ollama_timeout}s."
+                # If continuation timed out, return what we have
+                return full_answer if full_answer else "Generation timed out."
             except requests.exceptions.ConnectionError:
-                return f"Could not connect to Ollama at {self.ollama_url}. Please ensure Ollama is running."
+                if iteration == 0:
+                    return f"Could not connect to Ollama at {self.ollama_url}. Please ensure Ollama is running."
+                # If continuation failed, return what we have
+                return full_answer if full_answer else "Connection failed."
             except Exception as e:
-                if attempt < max_retries - 1:
-                    print(f"[Retry {attempt + 1}/{max_retries}] Ollama generation failed: {e}")
-                    time.sleep(1)
-                    continue
-                else:
+                if iteration == 0:
                     print(f"Ollama generation failed: {e}")
                     return f"Ollama generation failed: {str(e)}"
+                # If continuation failed, return what we have
+                return full_answer if full_answer else f"Generation failed: {str(e)}"
         
-        return "Failed to generate response after retries."
+        # Return what we have after all iterations
+        return full_answer if full_answer else "Failed to generate complete response."
 # Global singleton instance
 _generator_instance = None
 
@@ -247,10 +306,10 @@ def get_generator(model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
         _generator_instance = LocalLLMGenerator(model_name)
     return _generator_instance
 
-def generate_answer(prompt: str):
-    """Generate answer using cached model instance"""
+def generate_answer(prompt: str, query: str = None):
+    """Generate answer using cached model instance with dynamic continuation"""
     try:
         generator = get_generator()
-        return generator.generate_answer(prompt)
+        return generator.generate_answer(prompt, query=query)
     except Exception as e:
         return f"System error: {str(e)}. Please check the model configuration."

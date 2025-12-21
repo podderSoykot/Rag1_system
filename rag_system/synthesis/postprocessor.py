@@ -109,12 +109,31 @@ def clean_answer(answer: str) -> str:
     
     return cleaned
 
-def validate_answer_completeness(answer: str, query: str) -> Tuple[bool, str]:
-    """Validate if answer seems complete"""
+def detect_incomplete_answer(answer: str, query: str) -> Tuple[bool, str]:
+    """Detect if answer appears incomplete and needs continuation"""
     if not answer or len(answer.strip()) < 20:
-        return False, "Answer is too short"
+        return True, "Answer is too short"
     
-    # Check for common "I don't know" patterns
+    # Check if answer ends mid-sentence (likely cut off)
+    answer_trimmed = answer.strip()
+    if answer_trimmed:
+        last_char = answer_trimmed[-1]
+        # If doesn't end with punctuation, might be incomplete
+        if last_char not in '.!?;:':
+            # Check if last sentence is very short (likely cut off)
+            last_sentence = answer_trimmed.split('.')[-1].strip()
+            if len(last_sentence) > 0 and len(last_sentence) < 20:
+                return True, "Answer appears cut off mid-sentence"
+        
+        # Check for incomplete list patterns
+        if re.search(r'\d+\.\s*$', answer_trimmed) or re.search(r'-\s*$', answer_trimmed):
+            return True, "Answer appears to have incomplete list"
+        
+        # Check for trailing "and", "or", "but" (likely incomplete)
+        if re.search(r'\s+(and|or|but|also|furthermore|additionally)\s*$', answer_trimmed, re.IGNORECASE):
+            return True, "Answer appears to have incomplete thought"
+    
+    # Check for common "I don't know" patterns (these are complete, just indicate missing info)
     uncertainty_patterns = [
         r"cannot (?:fully )?answer",
         r"don't (?:have|contain) (?:enough|sufficient)",
@@ -124,7 +143,15 @@ def validate_answer_completeness(answer: str, query: str) -> Tuple[bool, str]:
     
     for pattern in uncertainty_patterns:
         if re.search(pattern, answer, re.IGNORECASE):
-            return True, "Answer indicates missing information"
+            return False, "Answer indicates missing information (complete but limited)"
+    
+    # For list queries, check if answer seems incomplete
+    if any(word in query.lower() for word in ['list', 'what are', 'chapters', 'topics']):
+        # Check if we have numbered items but they seem incomplete
+        numbered_items = re.findall(r'\d+\.', answer)
+        if numbered_items and len(numbered_items) < 3:
+            # Might need more items
+            return True, "List query may have incomplete items"
     
     # Check if answer is too generic
     generic_phrases = [
@@ -135,6 +162,11 @@ def validate_answer_completeness(answer: str, query: str) -> Tuple[bool, str]:
     
     generic_count = sum(1 for phrase in generic_phrases if phrase.lower() in answer.lower())
     if generic_count > 2 and len(answer) < 100:
-        return False, "Answer seems too generic"
+        return True, "Answer seems too generic"
     
-    return True, "Answer appears complete"
+    return False, "Answer appears complete"
+
+def validate_answer_completeness(answer: str, query: str) -> Tuple[bool, str]:
+    """Validate if answer seems complete (wrapper for backward compatibility)"""
+    is_incomplete, reason = detect_incomplete_answer(answer, query)
+    return not is_incomplete, reason

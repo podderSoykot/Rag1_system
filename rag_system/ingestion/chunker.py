@@ -107,6 +107,12 @@ def create_chunks_with_overlap(sentences, chunk_size, overlap):
 
 def normalize_text(text):
     """Normalize text by joining broken lines and fixing spacing"""
+    import re
+    # Fix spaces within words (common PDF extraction issue)
+    # Pattern: short word sequences with spaces (likely broken words)
+    # Only fix very short sequences to avoid breaking legitimate spaces
+    text = re.sub(r'\b([a-zA-Z]{1,2})\s+([a-zA-Z]{1,2})\b', r'\1\2', text)
+    
     # Replace multiple newlines with single space
     text = text.replace('\n', ' ')
     # Fix multiple spaces

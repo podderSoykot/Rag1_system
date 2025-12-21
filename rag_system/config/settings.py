@@ -48,3 +48,6 @@ PINECONE_DIMENSION = int(os.getenv("PINECONE_DIMENSION", "384"))  # Dimension fo
 
 # Performance monitoring
 ENABLE_PERFORMANCE_PROFILING = os.getenv("ENABLE_PERFORMANCE_PROFILING", "false").lower() in ["1", "true", "yes"]
+
+# Answer generation configuration
+MAX_ANSWER_TOKENS = int(os.getenv("MAX_ANSWER_TOKENS", "600"))  # Increased for more complete answers
