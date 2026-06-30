@@ -42,6 +42,13 @@ export function sendQuery(query, topK = 3) {
   })
 }
 
+export function sendResearch(topic, topKPerQuery = 5) {
+  return request('/research', {
+    method: 'POST',
+    body: JSON.stringify({ topic, top_k_per_query: topKPerQuery }),
+  })
+}
+
 export function startIngestion(force = false) {
   return request('/ingest', {
     method: 'POST',

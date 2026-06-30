@@ -31,6 +31,7 @@ CACHE_SIZE = int(os.getenv("CACHE_SIZE", "100"))  # LRU cache size
 # Embedding configuration
 # Increase batch size for faster processing (128 is good for CPU, 256+ for GPU)
 EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "128"))
+HF_HUB_OFFLINE = os.getenv("HF_HUB_OFFLINE", "false").lower() in ["1", "true", "yes"]
 
 # Query expansion
 USE_QUERY_EXPANSION = os.getenv("USE_QUERY_EXPANSION", "true").lower() in ["1", "true", "yes"]
@@ -51,6 +52,17 @@ ENABLE_PERFORMANCE_PROFILING = os.getenv("ENABLE_PERFORMANCE_PROFILING", "false"
 
 # Answer generation configuration
 MAX_ANSWER_TOKENS = int(os.getenv("MAX_ANSWER_TOKENS", "1000"))
+RESEARCH_MAX_TOKENS = int(os.getenv("RESEARCH_MAX_TOKENS", "1500"))
+RESEARCH_MAX_SUB_QUERIES = int(os.getenv("RESEARCH_MAX_SUB_QUERIES", "4"))
+
+# API security
+MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))
+MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "10"))
+RATE_LIMIT_QUERY_PER_MIN = int(os.getenv("RATE_LIMIT_QUERY_PER_MIN", "30"))
+RATE_LIMIT_RESEARCH_PER_MIN = int(os.getenv("RATE_LIMIT_RESEARCH_PER_MIN", "5"))
+RATE_LIMIT_UPLOAD_PER_MIN = int(os.getenv("RATE_LIMIT_UPLOAD_PER_MIN", "10"))
+RATE_LIMIT_INGEST_PER_MIN = int(os.getenv("RATE_LIMIT_INGEST_PER_MIN", "3"))
+API_DOCS_ENABLED = os.getenv("API_DOCS_ENABLED", "true").lower() in ["1", "true", "yes"]
 
 # OpenAI configuration (supports both OPENAI_API_KEY and openai_api_key in .env)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("openai_api_key", "")

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { sendQuery } from '../api/client'
+import { sendQuery, sendResearch } from '../api/client'
 import { useApp } from '../context/AppContext'
 import InputBar from '../components/InputBar'
 import Message from '../components/Message'
@@ -18,26 +18,48 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
 
+  const isResearchCommand = (text) => {
+    const t = text.trim().toLowerCase()
+    return (
+      t.startsWith('/research') ||
+      t.startsWith('research on ') ||
+      t.startsWith('research about ')
+    )
+  }
+
   const handleSubmit = async (text) => {
-    const query = (text ?? input).trim()
-    if (!query || loading) return
+    const raw = (text ?? input).trim()
+    if (!raw || loading) return
 
     setInput('')
-    setMessages((prev) => [...prev, { role: 'user', content: query }])
+    setMessages((prev) => [...prev, { role: 'user', content: raw }])
     setLoading(true)
 
     try {
-      const result = await sendQuery(query, topK)
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: result.answer || 'No answer generated.',
-          sources: result.sources,
-          timing: result.timing,
-          cacheHit: result.cache_hit,
-        },
-      ])
+      if (isResearchCommand(raw)) {
+        const result = await sendResearch(raw)
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: `## Research: ${result.topic}\n\n${result.answer}`,
+            sources: result.sources,
+            timing: result.timing,
+          },
+        ])
+      } else {
+        const result = await sendQuery(raw, topK)
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: result.answer || 'No answer generated.',
+            sources: result.sources,
+            timing: result.timing,
+            cacheHit: result.cache_hit,
+          },
+        ])
+      }
     } catch (e) {
       setMessages((prev) => [
         ...prev,
@@ -78,7 +100,7 @@ export default function ChatPage() {
             </span>
           </h2>
           <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-ink-400">
-            Powered by LangGraph retrieval. Answers include source citations from your library.
+            Powered by LangGraph retrieval. Use <code className="text-accent-light">/research topic</code> for a deep multi-angle report.
           </p>
 
           {!chatAvailable && (

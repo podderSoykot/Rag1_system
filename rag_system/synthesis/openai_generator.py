@@ -13,16 +13,16 @@ def get_client():
     return _client
 
 
-def generate_answer(prompt: str, query: str = None):
+def generate_answer(prompt: str, query: str = None, system_instructions: str = None, max_tokens: int = None):
     try:
         client = get_client()
         response = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
-                {"role": "system", "content": RAG_SYSTEM_INSTRUCTIONS},
+                {"role": "system", "content": system_instructions or RAG_SYSTEM_INSTRUCTIONS},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=MAX_ANSWER_TOKENS,
+            max_tokens=max_tokens or MAX_ANSWER_TOKENS,
             temperature=0.3,
         )
         return response.choices[0].message.content.strip()

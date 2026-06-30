@@ -1,9 +1,7 @@
 import os
 import re
-import time
 from pypdf import PdfReader
 from pathlib import Path
-from debug_log import debug_log
 
 def fix_pdf_text_spacing(text):
     """Fix common PDF extraction issues: spaces within words, broken lines, merged words"""
@@ -88,88 +86,15 @@ def process_pdfs(input_dir, output_dir):
         print(f"  Processing {filename} ({idx}/{total_pdfs}) - {progress}%")
         print(f"    Extracting text from {total_pages} pages...", end="", flush=True)
 
-        # #region agent log
-        debug_log(
-            "data_loader.py:process_pdfs",
-            "pdf_start",
-            {
-                "filename": filename,
-                "total_pages": total_pages,
-                "pdf_size_mb": round(pdf_size_mb, 2),
-            },
-            hypothesis_id="H1",
-        )
-        # #endregion
-
-        extract_start = time.time()
         page_texts = []
-        for page_idx, page in enumerate(reader.pages, 1):
+        for page in reader.pages:
             page_texts.append(page.extract_text() or "")
-            if page_idx % 100 == 0:
-                # #region agent log
-                debug_log(
-                    "data_loader.py:process_pdfs",
-                    "pdf_extract_progress",
-                    {
-                        "filename": filename,
-                        "pages_done": page_idx,
-                        "total_pages": total_pages,
-                        "elapsed_s": round(time.time() - extract_start, 2),
-                    },
-                    hypothesis_id="H1",
-                )
-                # #endregion
 
         text = "\n".join(page_texts)
-        extract_elapsed = time.time() - extract_start
-
-        # #region agent log
-        debug_log(
-            "data_loader.py:process_pdfs",
-            "pdf_extract_done",
-            {
-                "filename": filename,
-                "total_pages": total_pages,
-                "text_chars": len(text),
-                "extract_elapsed_s": round(extract_elapsed, 2),
-            },
-            hypothesis_id="H1",
-        )
-        # #endregion
-
-        fix_start = time.time()
         text = fix_pdf_text_spacing(text)
-        fix_elapsed = time.time() - fix_start
 
-        # #region agent log
-        debug_log(
-            "data_loader.py:process_pdfs",
-            "pdf_fix_done",
-            {
-                "filename": filename,
-                "fix_elapsed_s": round(fix_elapsed, 2),
-            },
-            hypothesis_id="H2",
-        )
-        # #endregion
-
-        write_start = time.time()
         with open(txt_path, "w", encoding="utf-8") as f:
             f.write(text)
-        write_elapsed = time.time() - write_start
-
-        # #region agent log
-        debug_log(
-            "data_loader.py:process_pdfs",
-            "pdf_write_done",
-            {
-                "filename": filename,
-                "write_elapsed_s": round(write_elapsed, 2),
-                "total_stage1_s": round(extract_elapsed + fix_elapsed + write_elapsed, 2),
-            },
-            hypothesis_id="H1",
-        )
-        # #endregion
         
         processed_count += 1
         print(f" ✓ Done")

@@ -5,6 +5,7 @@ A comprehensive Retrieval-Augmented Generation (RAG) system that processes PDF d
 ## 📋 Table of Contents
 
 - [Overview](#overview)
+- [Screenshots](#screenshots)
 - [How It Works](#how-it-works)
 - [LangGraph Orchestration](#langgraph-orchestration)
 - [MCP Integration (Cursor)](#mcp-integration-cursor)
@@ -26,6 +27,32 @@ This RAG system combines:
 - **Hybrid search** combining semantic and keyword matching
 
 **Key Point**: Pinecone is used for **finding** relevant information, while Ollama is used for **generating** the answer.
+
+## 📸 Screenshots
+
+### Web UI — Document upload & indexing
+
+Upload PDFs on the **Documents** page. Files are saved and indexed automatically in the background.
+
+![Documents page — upload PDFs and track indexing progress](docs/images/documents-upload.png)
+
+### Ingestion pipeline (CLI)
+
+The ingestion pipeline extracts text, chunks documents, generates embeddings, and builds vector indexes.
+
+![RAG ingestion pipeline — PDF extract, chunk, embed, index](docs/images/ingestion-pipeline.png)
+
+### Web UI — Chat
+
+Ask questions in the **Chat** page. The system retrieves relevant chunks and generates a synthesized answer with source citations.
+
+![Chat UI — ask questions about indexed documents](docs/images/chat-ui.png)
+
+### CLI — Query with timing
+
+Run queries from the terminal with detailed timing for retrieval and generation.
+
+![CLI query — retrieval, generation timing, and synthesized answer](docs/images/cli-query.png)
 
 ## 🔄 How It Works
 
@@ -122,6 +149,7 @@ The CLI uses this graph internally via `rag_pipeline()` in `main.py`.
 | Tool | Description |
 |------|-------------|
 | `rag_query` | Full RAG: retrieve relevant chunks and generate an answer |
+| `rag_research` | Deep research: multi-query retrieval + structured report (use for `/research` or "research on …") |
 | `rag_retrieve` | Search only — return source chunks without generating an answer |
 | `rag_status` | Check whether indexes exist and are up to date |
 | `rag_ingest` | Re-run ingestion (PDF extract → chunk → embed → index) |
@@ -419,7 +447,7 @@ Rag1_system/
    - `state.py`: Shared state (query, docs, answer, timing, steps)
 
 5. **MCP Server** (`rag_system/mcp_server.py`)
-   - Exposes `rag_query`, `rag_retrieve`, `rag_status`, and `rag_ingest` to Cursor
+   - Exposes `rag_query`, `rag_research`, `rag_retrieve`, `rag_status`, and `rag_ingest` to Cursor
 
 ### Data Flow
 

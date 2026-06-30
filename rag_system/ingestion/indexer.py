@@ -7,7 +7,6 @@ import time
 import numpy as np
 from collections import Counter
 from ingestion.embedder import get_embedding_model
-from debug_log import debug_log
 from config.settings import (
     EMBEDDING_BATCH_SIZE, USE_PINECONE, PINECONE_API_KEY, 
     PINECONE_INDEX_NAME, PINECONE_ENVIRONMENT, PINECONE_DIMENSION
@@ -114,14 +113,6 @@ def index_documents(input_dir: str, db_dir: str, model_name: str):
     num_batches = (total_docs + EMBEDDING_BATCH_SIZE - 1) // EMBEDDING_BATCH_SIZE
     print(f"  Generating embeddings for {total_docs} chunks...")
     print(f"    Batch size: {EMBEDDING_BATCH_SIZE}, Total batches: {num_batches}")
-    # #region agent log
-    debug_log(
-        "indexer.py:index_documents",
-        "embedding_start",
-        {"total_docs": total_docs, "num_batches": num_batches, "batch_size": EMBEDDING_BATCH_SIZE},
-        hypothesis_id="H4",
-    )
-    # #endregion
     embeddings = []
     
     for batch_idx, i in enumerate(range(0, len(documents), EMBEDDING_BATCH_SIZE), 1):
@@ -160,21 +151,6 @@ def index_documents(input_dir: str, db_dir: str, model_name: str):
         batch_time = time.time() - batch_start
         print(f" ✓ ({batch_time:.1f}s)")
 
-        if batch_idx in (1, 5, 10) or batch_idx == num_batches:
-            # #region agent log
-            debug_log(
-                "indexer.py:index_documents",
-                "embedding_batch",
-                {
-                    "batch_idx": batch_idx,
-                    "num_batches": num_batches,
-                    "batch_time_s": round(batch_time, 2),
-                    "elapsed_s": round(time.time() - embedding_start, 2),
-                },
-                hypothesis_id="H4",
-            )
-            # #endregion
-        
         # Show progress every 10 batches
         if batch_idx % 10 == 0:
             elapsed_total = time.time() - embedding_start

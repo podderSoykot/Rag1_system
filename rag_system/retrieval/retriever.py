@@ -1,14 +1,15 @@
 # rag_system/retrieval/retriever.py
 
 import os
-import pickle
 import re
 import numpy as np
 import hashlib
 import threading
+from pathlib import Path
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ingestion.embedder import get_embedding_model
+from trusted_storage import load_trusted_pickle
 from config.settings import (
     USE_HYBRID_SEARCH, SEMANTIC_WEIGHT, TFIDF_WEIGHT,
     USE_RERANKING, RERANK_TOP_K, USE_QUERY_EXPANSION,
@@ -59,12 +60,12 @@ class Retriever:
         self.vector_metadata = None
         
         metadata_path = os.path.join(db_dir, "vector_metadata.pkl")
+        index_base = Path(db_dir)
         
         # Try Pinecone first if enabled
         if USE_PINECONE and HAS_PINECONE and PINECONE_API_KEY and os.path.exists(metadata_path):
             try:
-                with open(metadata_path, "rb") as f:
-                    metadata = pickle.load(f)
+                metadata = load_trusted_pickle(index_base, "vector_metadata.pkl")
                 
                 if metadata.get("use_pinecone", False):
                     pc = Pinecone(api_key=PINECONE_API_KEY)
@@ -84,8 +85,7 @@ class Retriever:
             if HAS_FAISS and os.path.exists(faiss_path) and os.path.exists(metadata_path):
                 try:
                     self.vector_index = faiss.read_index(faiss_path)
-                    with open(metadata_path, "rb") as f:
-                        self.vector_metadata = pickle.load(f)
+                    self.vector_metadata = load_trusted_pickle(index_base, "vector_metadata.pkl")
                     self.use_vector_search = True
                     print(f"[OK] Loaded FAISS index with {len(self.vector_metadata['documents'])} documents")
                 except Exception as e:
@@ -95,8 +95,7 @@ class Retriever:
             if not self.use_vector_search and os.path.exists(embeddings_path) and os.path.exists(metadata_path):
                 try:
                     self.embeddings_array = np.load(embeddings_path)
-                    with open(metadata_path, "rb") as f:
-                        self.vector_metadata = pickle.load(f)
+                    self.vector_metadata = load_trusted_pickle(index_base, "vector_metadata.pkl")
                     self.use_vector_search = True
                     print(f"[OK] Loaded numpy embeddings with {len(self.vector_metadata['documents'])} documents")
                 except Exception as e:
@@ -105,8 +104,7 @@ class Retriever:
         # Load TF-IDF index (for hybrid search or fallback)
         index_path = os.path.join(db_dir, "tfidf_index.pkl")
         if os.path.exists(index_path):
-            with open(index_path, "rb") as f:
-                self.index_data = pickle.load(f)
+            self.index_data = load_trusted_pickle(index_base, "tfidf_index.pkl")
             self.use_tfidf = True
             if not self.use_vector_search:
                 print(f"[OK] Loaded TF-IDF index with {len(self.index_data['documents'])} documents")

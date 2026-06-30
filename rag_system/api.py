@@ -1,17 +1,36 @@
 """FastAPI backend for the RAG frontend."""
 
+import logging
 import shutil
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from config.settings import DATA_RAW, OPENAI_API_KEY, OPENAI_MODEL, USE_OLLAMA, USE_OPENAI, VECTOR_DB_DIR
+from api_security import api_error, client_key, rate_limiter, save_upload_limited
+from debug_log import debug_log
+from config.settings import (
+    API_DOCS_ENABLED,
+    DATA_RAW,
+    MAX_UPLOAD_FILES,
+    MAX_UPLOAD_SIZE_MB,
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
+    RATE_LIMIT_INGEST_PER_MIN,
+    RATE_LIMIT_QUERY_PER_MIN,
+    RATE_LIMIT_RESEARCH_PER_MIN,
+    RATE_LIMIT_UPLOAD_PER_MIN,
+    USE_OLLAMA,
+    USE_OPENAI,
+    VECTOR_DB_DIR,
+)
 from main import needs_ingestion, run_ingestion
 from rag_agent.graph import get_retriever, reset_retriever, run_rag_graph
+
+logging.basicConfig(level=logging.INFO)
 
 _ingestion_lock = threading.Lock()
 _ingestion_state = {
@@ -20,6 +39,7 @@ _ingestion_state = {
     "error": None,
     "completed_at": None,
 }
+_MAX_UPLOAD_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 
 def _set_ingestion_state(running: bool, message: str, error: str | None = None):
@@ -38,7 +58,8 @@ def _run_ingestion_job(force: bool = False):
         reset_retriever()
         _set_ingestion_state(False, "Ingestion complete")
     except Exception as exc:
-        _set_ingestion_state(False, "Ingestion failed", str(exc))
+        logging.exception("Ingestion job failed")
+        _set_ingestion_state(False, "Ingestion failed", "Ingestion failed")
 
 
 def _index_exists() -> bool:
@@ -66,6 +87,10 @@ def _safe_filename(name: str) -> str:
     return base
 
 
+def _rate_limit(request: Request, bucket: str, limit: int) -> None:
+    rate_limiter.check(bucket, client_key(request.client.host if request.client else None), limit)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     needs_it, reason = needs_ingestion()
@@ -74,7 +99,13 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="RAG System API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="RAG System API",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/docs" if API_DOCS_ENABLED else None,
+    redoc_url="/redoc" if API_DOCS_ENABLED else None,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -108,6 +139,11 @@ class StatusResponse(BaseModel):
 
 class IngestRequest(BaseModel):
     force: bool = False
+
+
+class ResearchRequest(BaseModel):
+    topic: str = Field(..., min_length=1, max_length=2000)
+    top_k_per_query: int = Field(default=4, ge=1, le=8)
 
 
 @app.get("/api/health")
@@ -164,17 +200,28 @@ def list_documents():
 @app.get("/api/ingest/status")
 def ingest_status():
     with _ingestion_lock:
-        return dict(_ingestion_state)
+        state = dict(_ingestion_state)
+    if state.get("error") and state["error"] != "Ingestion failed":
+        state["error"] = "Ingestion failed"
+    return state
 
 
 @app.post("/api/upload")
 async def upload_pdfs(
+    request: Request,
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     ingest: bool = Query(default=True),
 ):
+    _rate_limit(request, "upload", RATE_LIMIT_UPLOAD_PER_MIN)
+
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many files. Maximum {MAX_UPLOAD_FILES} per upload.",
+        )
 
     with _ingestion_lock:
         if _ingestion_state["running"]:
@@ -186,8 +233,7 @@ async def upload_pdfs(
     for upload in files:
         filename = _safe_filename(upload.filename or "document.pdf")
         dest = DATA_RAW / filename
-        with dest.open("wb") as out:
-            shutil.copyfileobj(upload.file, out)
+        await save_upload_limited(upload, dest, _MAX_UPLOAD_BYTES)
         saved.append(filename)
 
     response = {
@@ -205,7 +251,10 @@ async def upload_pdfs(
 
 
 @app.post("/api/query", response_model=QueryResponse)
-def query(body: QueryRequest):
+def query(body: QueryRequest, request: Request):
+    _rate_limit(request, "query", RATE_LIMIT_QUERY_PER_MIN)
+    debug_log("api.py:query", "start", {"qlen": len(body.query)}, "H3")
+
     if not _index_exists():
         raise HTTPException(
             status_code=503,
@@ -219,9 +268,10 @@ def query(body: QueryRequest):
             show_timing=False,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise api_error(exc, context="query") from exc
 
     docs = result.get("docs") or []
+    debug_log("api.py:query", "ok", {"sources": len(docs)}, "H3")
     return QueryResponse(
         answer=result.get("answer", ""),
         sources=docs,
@@ -232,20 +282,54 @@ def query(body: QueryRequest):
 
 
 @app.post("/api/retrieve")
-def retrieve(body: QueryRequest):
+def retrieve(body: QueryRequest, request: Request):
+    _rate_limit(request, "query", RATE_LIMIT_QUERY_PER_MIN)
+
     if not _index_exists():
         raise HTTPException(status_code=503, detail="No searchable index yet.")
 
     try:
         docs = get_retriever().search(body.query, top_k=body.top_k, show_timing=False)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise api_error(exc, context="retrieve") from exc
 
     return {"sources": docs, "count": len(docs)}
 
 
+@app.post("/api/research")
+def research(body: ResearchRequest, request: Request):
+    _rate_limit(request, "research", RATE_LIMIT_RESEARCH_PER_MIN)
+
+    if not _index_exists():
+        raise HTTPException(status_code=503, detail="No searchable index yet.")
+
+    try:
+        from rag_agent.research import run_research
+
+        result = run_research(
+            body.topic,
+            top_k_per_query=body.top_k_per_query,
+            show_timing=False,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise api_error(exc, context="research") from exc
+
+    return {
+        "topic": result.get("topic", body.topic),
+        "answer": result.get("answer", ""),
+        "sources": result.get("docs") or [],
+        "sub_queries": result.get("sub_queries") or [],
+        "timing": result.get("timing") or {},
+        "steps": result.get("steps") or [],
+    }
+
+
 @app.post("/api/ingest")
-def ingest(body: IngestRequest, background_tasks: BackgroundTasks):
+def ingest(body: IngestRequest, request: Request, background_tasks: BackgroundTasks):
+    _rate_limit(request, "ingest", RATE_LIMIT_INGEST_PER_MIN)
+
     with _ingestion_lock:
         if _ingestion_state["running"]:
             raise HTTPException(status_code=409, detail="Ingestion already in progress")

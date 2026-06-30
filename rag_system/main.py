@@ -18,7 +18,6 @@ from rag_agent.graph import run_rag_graph, reset_retriever
 from config.settings import (
     DATA_RAW, DATA_PROCESSED, DATA_CHUNKS, VECTOR_DB_DIR, EMB_MODEL_NAME,
 )
-from debug_log import debug_log
 import argparse
 import time
 from pathlib import Path
@@ -89,14 +88,6 @@ def run_ingestion(force=False):
     # Check if ingestion is needed
     if not force:
         needs_it, reason = needs_ingestion()
-        # #region agent log
-        debug_log(
-            "main.py:run_ingestion",
-            "ingestion_check",
-            {"needs_ingestion": needs_it, "reason": reason, "force": force},
-            hypothesis_id="H5",
-        )
-        # #endregion
         if not needs_it:
             print("\n" + "="*60)
             print("✓ INGESTION SKIPPED - All files are up to date!")
@@ -118,9 +109,6 @@ def run_ingestion(force=False):
     print("\n[Stage 1/4] Extracting text from PDFs... (0% - 25%)")
     process_pdfs(DATA_RAW, DATA_PROCESSED)
     stage1_time = time.time() - stage1_start
-    # #region agent log
-    debug_log("main.py:run_ingestion", "stage1_done", {"stage1_s": round(stage1_time, 2)}, hypothesis_id="H1")
-    # #endregion
     print(f"✓ PDF extraction complete! (25%) - Time: {stage1_time:.1f}s")
     
     # Stage 2: Chunking (25-50%)
@@ -128,9 +116,6 @@ def run_ingestion(force=False):
     print(f"\n[Stage 2/4] Creating semantic chunks... (25% - 50%)")
     process_files(DATA_PROCESSED, DATA_CHUNKS)
     stage2_time = time.time() - stage2_start
-    # #region agent log
-    debug_log("main.py:run_ingestion", "stage2_done", {"stage2_s": round(stage2_time, 2)}, hypothesis_id="H3")
-    # #endregion
     print(f"✓ Chunking complete! (50%) - Time: {stage2_time:.1f}s")
     
     # Stage 3 & 4: Indexing (50-100%)
@@ -138,9 +123,6 @@ def run_ingestion(force=False):
     print(f"\n[Stage 3-4/4] Generating embeddings and indexing... (50% - 100%)")
     index_documents(DATA_CHUNKS, str(VECTOR_DB_DIR), EMB_MODEL_NAME)
     stage3_time = time.time() - stage3_start
-    # #region agent log
-    debug_log("main.py:run_ingestion", "stage3_done", {"stage3_s": round(stage3_time, 2)}, hypothesis_id="H4")
-    # #endregion
     print(f"✓ Indexing complete! (100%) - Time: {stage3_time:.1f}s")
     
     total_time = time.time() - start_time
@@ -222,3 +204,12 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"\nError: {e}")
             print("Please try again with a different question.")
+
+
+def __getattr__(name: str):
+    """Lazy export so `uvicorn main:app` works (same FastAPI app as api.py)."""
+    if name == "app":
+        from api import app as fastapi_app
+
+        return fastapi_app
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
