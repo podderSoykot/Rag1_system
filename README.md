@@ -6,6 +6,8 @@ A comprehensive Retrieval-Augmented Generation (RAG) system that processes PDF d
 
 - [Overview](#overview)
 - [How It Works](#how-it-works)
+- [LangGraph Orchestration](#langgraph-orchestration)
+- [MCP Integration (Cursor)](#mcp-integration-cursor)
 - [Features](#features)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -62,6 +64,108 @@ User Question
 - **Input**: Prompt with retrieved chunks + query
 - **Output**: Generated answer text
 
+## 🔀 LangGraph Orchestration
+
+The RAG pipeline is orchestrated with **LangGraph** in `rag_system/rag_agent/graph.py`. Instead of a single linear function, each step is a graph node with explicit state and routing.
+
+### Pipeline Flow
+
+```
+User Query
+    ↓
+check_cache ──(cache hit)──→ END
+    │
+    └──(cache miss)──→ retrieve → build_prompt → generate → END
+```
+
+| Node | What it does |
+|------|----------------|
+| `check_cache` | Returns a cached answer if the same query was seen before |
+| `retrieve` | Hybrid search (semantic + TF-IDF) over indexed chunks |
+| `build_prompt` | Combines retrieved chunks and the user query into a prompt |
+| `generate` | Calls OpenAI or Ollama to produce the final answer |
+
+State is tracked in `RAGState` (`rag_system/rag_agent/state.py`): query, docs, prompt, answer, timing, and step history.
+
+### Benefits of LangGraph
+
+- **Clear separation of steps** — retrieval, prompting, and generation are isolated and easy to debug
+- **Conditional routing** — cache hits skip retrieval and generation entirely
+- **Observable pipeline** — per-step timing and a `steps` trail show exactly what ran
+- **Easy to extend** — add nodes (e.g. reranking, query rewriting, validation) without rewriting the whole pipeline
+- **Reusable entry point** — the same graph powers the CLI, programmatic API, and MCP tools
+
+### Using LangGraph Directly
+
+```python
+from rag_agent.graph import run_rag_graph
+
+result = run_rag_graph(
+    "What is backpropagation?",
+    top_k=3,
+    show_timing=True,
+)
+
+print(result["answer"])
+print(result["timing"])   # retrieval_ms, prompt_ms, generation_ms, total_ms
+print(result["steps"])    # e.g. ['check_cache', 'retrieve', 'build_prompt', 'generate']
+```
+
+The CLI uses this graph internally via `rag_pipeline()` in `main.py`.
+
+## 🔌 MCP Integration (Cursor)
+
+**MCP (Model Context Protocol)** exposes the RAG system as tools that **Cursor** (and other MCP clients) can call from chat — so you can ask questions about your documents without leaving the IDE.
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `rag_query` | Full RAG: retrieve relevant chunks and generate an answer |
+| `rag_retrieve` | Search only — return source chunks without generating an answer |
+| `rag_status` | Check whether indexes exist and are up to date |
+| `rag_ingest` | Re-run ingestion (PDF extract → chunk → embed → index) |
+
+### Setup in Cursor
+
+1. Create or edit `.cursor/mcp.json` in the project root:
+
+```json
+{
+  "mcpServers": {
+    "rag-system": {
+      "command": "/path/to/your/venv/bin/python",
+      "args": ["mcp_server.py"],
+      "cwd": "/path/to/Rag1_system/rag_system"
+    }
+  }
+}
+```
+
+2. Replace `/path/to/your/venv/bin/python` with your virtualenv Python path.
+3. Restart Cursor or reload MCP servers from **Settings → MCP**.
+4. Ask questions in Cursor chat — the AI will call `rag_query` automatically when relevant.
+
+### Running the MCP Server Manually (Optional)
+
+```bash
+cd rag_system
+python main.py --mcp
+# or
+python mcp_server.py
+```
+
+You should see a startup banner listing tools, generation backend, and index status. The server then waits for an MCP client over stdio.
+
+> **Note:** The MCP server terminal is **not** a chat interface. Do not type questions there — it expects JSON-RPC from Cursor. Use Cursor chat, or `python main.py` for terminal Q&A.
+
+### Benefits of MCP
+
+- **Ask from the IDE** — query your PDFs directly in Cursor chat without switching to a terminal
+- **Tool-based access** — Cursor can retrieve, answer, check status, or re-ingest on demand
+- **Same RAG pipeline** — MCP tools call the same LangGraph flow as the CLI
+- **Composable** — works alongside other MCP servers (GitHub, Linear, etc.) in one chat session
+
 ## ✨ Features
 
 - **Document Ingestion**: PDF to text conversion and intelligent chunking with structured content preservation
@@ -71,6 +175,9 @@ User Question
 - **Performance**: Optimized for speed with parallel searches, caching, and performance monitoring
 - **Quality**: Enhanced prompts and answer post-processing for better, more direct responses
 - **Monitoring**: Detailed timing information and answer quality metrics
+- **LangGraph Orchestration**: Stateful RAG pipeline with cache routing and per-step timing
+- **MCP Server**: Expose RAG tools to Cursor and other MCP clients
+- **OpenAI Support**: Optional OpenAI generation backend (configure via `.env`)
 
 ## 🚀 Installation
 
@@ -187,13 +294,32 @@ python main.py
 - `--top_k`: Number of chunks to retrieve (default: 3)
 - `--force-ingestion`: Force re-processing of all documents
 - `--no-timing`: Disable timing information
+- `--mcp`: Start the MCP server (stdio) instead of the interactive CLI
+
+### MCP Usage (Cursor Chat)
+
+Once `.cursor/mcp.json` is configured, ask in Cursor chat:
+
+```
+What is backpropagation according to my ML textbook?
+```
+
+Cursor calls `rag_query` behind the scenes. You can also ask Cursor to:
+- `rag_retrieve` — show source chunks only
+- `rag_status` — check if indexes are ready
+- `rag_ingest` — rebuild indexes after adding new PDFs
 
 ### Programmatic Usage
 
 ```python
-from rag_system.main import rag_pipeline
+from rag_agent.graph import run_rag_graph
 
-# Run a query
+# Full result with timing and steps
+result = run_rag_graph("What is the main topic?", top_k=3)
+print(result["answer"])
+
+# Or use the convenience wrapper
+from main import rag_pipeline
 answer = rag_pipeline("What is the main topic?", top_k=3)
 print(answer)
 ```
@@ -255,9 +381,14 @@ Rag1_system/
 │   ├── synthesis/          # Answer generation
 │   │   ├── prompt_builder.py
 │   │   ├── generator.py    # Main generator interface
+│   │   ├── openai_generator.py  # OpenAI integration
 │   │   ├── local_generator.py  # Ollama/TinyLlama integration
 │   │   └── postprocessor.py   # Answer cleaning
-│   ├── main.py             # CLI entry point
+│   ├── rag_agent/          # LangGraph orchestration
+│   │   ├── graph.py        # RAG pipeline graph (retrieve → prompt → generate)
+│   │   └── state.py        # Typed state passed between nodes
+│   ├── mcp_server.py       # MCP server (Cursor tool integration)
+│   ├── main.py             # CLI and MCP entry point
 │   └── requirements.txt    # Python dependencies
 ├── README.md               # This file
 ├── RAG_ARCHITECTURE.md    # Detailed architecture docs
@@ -279,8 +410,16 @@ Rag1_system/
 3. **Synthesis** (`rag_system/synthesis/`)
    - `prompt_builder.py`: Build context-aware prompts
    - `generator.py`: Main generator interface with post-processing
+   - `openai_generator.py`: OpenAI API integration
    - `local_generator.py`: Ollama API integration
    - `postprocessor.py`: Clean and format answers
+
+4. **LangGraph Agent** (`rag_system/rag_agent/`)
+   - `graph.py`: Orchestrates cache check → retrieve → prompt → generate
+   - `state.py`: Shared state (query, docs, answer, timing, steps)
+
+5. **MCP Server** (`rag_system/mcp_server.py`)
+   - Exposes `rag_query`, `rag_retrieve`, `rag_status`, and `rag_ingest` to Cursor
 
 ### Data Flow
 
@@ -291,13 +430,15 @@ Text Extraction → Chunking → Embeddings
     ↓
 Pinecone Index / FAISS Index
     ↓ [Query Time]
-User Question → Embed Query → Search Pinecone
+User Question → LangGraph (check_cache → retrieve → build_prompt → generate)
+    ↓
+Embed Query → Hybrid Search (Pinecone/FAISS + TF-IDF)
     ↓
 Retrieve Top-K Chunks → Build Prompt
     ↓
-Send to Ollama → Generate Answer
+Send to OpenAI/Ollama → Generate Answer
     ↓
-Post-process → Return Answer
+Post-process → Return Answer (CLI, API, or MCP tool response)
 ```
 
 ## ⚡ Performance
@@ -378,6 +519,21 @@ The system provides detailed timing information:
 - Or install as package: `pip install -e .`
 - Check Python path includes project root
 
+### MCP Issues
+
+**Invalid JSON error when typing in MCP terminal:**
+- The MCP server expects JSON-RPC from Cursor, not plain text
+- Ask questions in **Cursor chat** or use `python main.py` for terminal Q&A
+
+**MCP tools not appearing in Cursor:**
+- Verify `.cursor/mcp.json` paths (Python executable and `cwd`)
+- Restart Cursor or reload MCP servers
+- Check that `mcp` and `langgraph` are installed: `pip install -r requirements.txt`
+
+**Slow first MCP tool call:**
+- The embedding model loads on first retrieval (~few seconds)
+- Subsequent calls are faster due to caching
+
 ## 📦 Requirements
 
 See `rag_system/requirements.txt` for all dependencies. Key packages:
@@ -385,8 +541,12 @@ See `rag_system/requirements.txt` for all dependencies. Key packages:
 - `transformers>=4.41.0` - Hugging Face transformers
 - `torch` - PyTorch for model inference
 - `sentence-transformers` - Embedding generation
-- `pinecone-client` - Pinecone vector database client
+- `pinecone` - Pinecone vector database client
 - `faiss-cpu` - Local vector search (fallback)
+- `openai` - OpenAI API for answer generation (optional)
+- `langgraph` - Stateful RAG pipeline orchestration
+- `langchain-core` - LangGraph dependencies
+- `mcp` - Model Context Protocol server for Cursor integration
 - `pypdf` - PDF text extraction
 - `nltk>=3.8` - Natural language processing
 - `python-dotenv` - Environment variable management
@@ -394,10 +554,11 @@ See `rag_system/requirements.txt` for all dependencies. Key packages:
 
 ## 📝 Notes
 
-- **No OpenAI Required**: System uses only local LLMs (Ollama/TinyLlama)
-- **Privacy**: All processing happens locally (except Pinecone storage)
+- **Flexible generation**: Supports OpenAI (via `.env`) or local LLMs (Ollama/TinyLlama)
+- **Privacy**: Retrieval and chunking run locally; generation depends on your backend choice
 - **Scalability**: Pinecone handles large document collections efficiently
 - **Fallbacks**: System gracefully falls back to FAISS/TinyLlama if cloud services unavailable
+- **Three ways to query**: CLI (`python main.py`), programmatic (`run_rag_graph`), or MCP (Cursor chat)
 
 ## 📧 Contact
 

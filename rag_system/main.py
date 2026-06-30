@@ -1,38 +1,27 @@
+import sys
+
+if __name__ == "__main__" and "--mcp" in sys.argv:
+    import time
+
+    print("[Info] Loading RAG MCP server...", file=sys.stderr, flush=True)
+    t0 = time.time()
+    from mcp_server import log_mcp_startup, mcp
+
+    log_mcp_startup(time.time() - t0)
+    mcp.run()
+    raise SystemExit(0)
+
 from ingestion.data_loader import process_pdfs
 from ingestion.chunker import process_files
 from ingestion.indexer import index_documents
-from retrieval.retriever import Retriever
-from synthesis.prompt_builder import build_prompt
-from synthesis.generator import generate_answer
+from rag_agent.graph import run_rag_graph, reset_retriever
 from config.settings import (
     DATA_RAW, DATA_PROCESSED, DATA_CHUNKS, VECTOR_DB_DIR, EMB_MODEL_NAME,
-    CACHE_ENABLED, CACHE_SIZE
 )
+from debug_log import debug_log
 import argparse
-import hashlib
 import time
-import os
 from pathlib import Path
-
-# Global retriever instance (cached)
-_retriever_instance = None
-
-def get_retriever():
-    """Get or create cached retriever instance"""
-    global _retriever_instance
-    if _retriever_instance is None:
-        _retriever_instance = Retriever(str(VECTOR_DB_DIR), EMB_MODEL_NAME)
-    return _retriever_instance
-
-# Result cache
-_result_cache = {}
-_cache_hits = 0
-_cache_misses = 0
-
-def _get_cache_key(query: str, top_k: int):
-    """Generate cache key from query and parameters"""
-    key_string = f"{query.lower().strip()}:{top_k}"
-    return hashlib.md5(key_string.encode()).hexdigest()
 
 def needs_ingestion():
     """Check if ingestion is needed by comparing file modification times"""
@@ -100,6 +89,14 @@ def run_ingestion(force=False):
     # Check if ingestion is needed
     if not force:
         needs_it, reason = needs_ingestion()
+        # #region agent log
+        debug_log(
+            "main.py:run_ingestion",
+            "ingestion_check",
+            {"needs_ingestion": needs_it, "reason": reason, "force": force},
+            hypothesis_id="H5",
+        )
+        # #endregion
         if not needs_it:
             print("\n" + "="*60)
             print("✓ INGESTION SKIPPED - All files are up to date!")
@@ -121,6 +118,9 @@ def run_ingestion(force=False):
     print("\n[Stage 1/4] Extracting text from PDFs... (0% - 25%)")
     process_pdfs(DATA_RAW, DATA_PROCESSED)
     stage1_time = time.time() - stage1_start
+    # #region agent log
+    debug_log("main.py:run_ingestion", "stage1_done", {"stage1_s": round(stage1_time, 2)}, hypothesis_id="H1")
+    # #endregion
     print(f"✓ PDF extraction complete! (25%) - Time: {stage1_time:.1f}s")
     
     # Stage 2: Chunking (25-50%)
@@ -128,6 +128,9 @@ def run_ingestion(force=False):
     print(f"\n[Stage 2/4] Creating semantic chunks... (25% - 50%)")
     process_files(DATA_PROCESSED, DATA_CHUNKS)
     stage2_time = time.time() - stage2_start
+    # #region agent log
+    debug_log("main.py:run_ingestion", "stage2_done", {"stage2_s": round(stage2_time, 2)}, hypothesis_id="H3")
+    # #endregion
     print(f"✓ Chunking complete! (50%) - Time: {stage2_time:.1f}s")
     
     # Stage 3 & 4: Indexing (50-100%)
@@ -135,6 +138,9 @@ def run_ingestion(force=False):
     print(f"\n[Stage 3-4/4] Generating embeddings and indexing... (50% - 100%)")
     index_documents(DATA_CHUNKS, str(VECTOR_DB_DIR), EMB_MODEL_NAME)
     stage3_time = time.time() - stage3_start
+    # #region agent log
+    debug_log("main.py:run_ingestion", "stage3_done", {"stage3_s": round(stage3_time, 2)}, hypothesis_id="H4")
+    # #endregion
     print(f"✓ Indexing complete! (100%) - Time: {stage3_time:.1f}s")
     
     total_time = time.time() - start_time
@@ -146,79 +152,17 @@ def run_ingestion(force=False):
     print("="*60 + "\n")
     
     # Clear retriever cache after re-indexing
-    global _retriever_instance
-    _retriever_instance = None
+    reset_retriever()
 
 def rag_pipeline(query: str, top_k: int = 3, use_cache: bool = None, show_timing: bool = True):
-    """RAG pipeline with optional result caching and timing"""
-    if use_cache is None:
-        use_cache = CACHE_ENABLED
-    
-    total_start = time.time()
-    
-    # Check cache
-    if use_cache:
-        cache_key = _get_cache_key(query, top_k)
-        if cache_key in _result_cache:
-            global _cache_hits
-            _cache_hits += 1
-            if show_timing:
-                total_time = time.time() - total_start
-                print(f"[Cache Hit] Returning cached result (Time: {total_time*1000:.0f}ms)")
-            return _result_cache[cache_key]
-    
-    # Cache miss - perform retrieval and generation
-    global _cache_misses
-    _cache_misses += 1
-    
-    # Retrieval timing
-    retrieval_start = time.time()
-    retriever = get_retriever()
-    docs = retriever.search(query, top_k=top_k, show_timing=show_timing)
-    retrieval_time = time.time() - retrieval_start
-    
-    # Prompt building (usually very fast, but measure it)
-    prompt_start = time.time()
-    prompt = build_prompt(query, docs)
-    prompt_time = time.time() - prompt_start
-    
-    # Generation timing
-    generation_start = time.time()
-    answer = generate_answer(prompt, query=query)
-    generation_time = time.time() - generation_start
-    
-    total_time = time.time() - total_start
-    
-    # Display timing information
-    if show_timing:
-        print(f"\n[Timing]")
-        print(f"  Retrieval:  {retrieval_time*1000:.0f}ms")
-        print(f"  Prompt:     {prompt_time*1000:.0f}ms")
-        print(f"  Generation: {generation_time*1000:.0f}ms")
-        print(f"  Total:      {total_time*1000:.0f}ms ({total_time:.2f}s)")
-        
-        # Answer quality metrics
-        if answer:
-            answer_length = len(answer)
-            word_count = len(answer.split())
-            print(f"\n[Answer Quality]")
-            print(f"  Length: {answer_length} chars, {word_count} words")
-            if answer_length < 50:
-                print(f"  ⚠ Warning: Answer is quite short")
-            elif answer_length > 1000:
-                print(f"  ✓ Answer is comprehensive")
-    
-    # Store in cache
-    if use_cache:
-        cache_key = _get_cache_key(query, top_k)
-        # Implement LRU: remove oldest if cache is full
-        if len(_result_cache) >= CACHE_SIZE:
-            # Remove first (oldest) item
-            oldest_key = next(iter(_result_cache))
-            del _result_cache[oldest_key]
-        _result_cache[cache_key] = answer
-    
-    return answer
+    """RAG pipeline orchestrated by LangGraph (retrieve -> prompt -> generate)."""
+    result = run_rag_graph(
+        query,
+        top_k=top_k,
+        use_cache=use_cache,
+        show_timing=show_timing,
+    )
+    return result.get("answer", "")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the RAG pipeline")
@@ -226,13 +170,16 @@ if __name__ == "__main__":
     parser.add_argument("--top_k", type=int, default=3, help="Number of chunks to retrieve")
     parser.add_argument("--force-ingestion", action="store_true", help="Force re-ingestion even if files are up to date")
     parser.add_argument("--no-timing", action="store_true", help="Disable timing information")
+    parser.add_argument("--mcp", action="store_true", help="Run MCP server (stdio) instead of CLI")
     args = parser.parse_args()
-    
+
     show_timing = not args.no_timing
     
-    # Test Ollama connection if using Ollama
-    from config.settings import USE_OLLAMA
-    if USE_OLLAMA:
+    # Test generation backend connection
+    from config.settings import USE_OLLAMA, USE_OPENAI, OPENAI_API_KEY, OPENAI_MODEL
+    if USE_OPENAI and OPENAI_API_KEY:
+        print(f"[Info] OpenAI is enabled (model: {OPENAI_MODEL})")
+    elif USE_OLLAMA:
         from synthesis.local_generator import get_generator
         try:
             generator = get_generator()

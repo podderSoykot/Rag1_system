@@ -10,7 +10,11 @@ sentence-transformers
 torch
 faiss-cpu
 nltk>=3.8
-pinecone-client
+pinecone
+openai
+langgraph
+langchain-core
+mcp
 
 #checked
 # Note: Using Pinecone for vector search (cloud-based, scalable)

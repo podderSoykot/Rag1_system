@@ -4,6 +4,8 @@ import os
 import re
 from tqdm import tqdm
 from config.settings import CHUNK_SIZE, CHUNK_OVERLAP
+from debug_log import debug_log
+import time
 
 # Try to import nltk, fallback to simple splitting if not available
 try:
@@ -217,10 +219,19 @@ def process_files(input_dir, output_dir, chunk_size=None, chunk_overlap=None):
         progress = 25 + int((idx / total_files) * 25)
         
         print(f"  Chunking {filename} ({idx}/{total_files}) - {progress}%")
-        
-        # Get file size for progress tracking
+
         file_size = os.path.getsize(input_path)
         file_size_mb = file_size / (1024 * 1024)
+
+        # #region agent log
+        chunk_start = time.time()
+        debug_log(
+            "chunker.py:process_files",
+            "chunk_start",
+            {"filename": filename, "file_size_mb": round(file_size_mb, 2)},
+            hypothesis_id="H3",
+        )
+        # #endregion
         
         # Read entire file and normalize (for better sentence detection)
         # But process in sections to avoid memory issues
@@ -369,6 +380,18 @@ def process_files(input_dir, output_dir, chunk_size=None, chunk_overlap=None):
             pbar.close()
 
         processed_count += 1
+        # #region agent log
+        debug_log(
+            "chunker.py:process_files",
+            "chunk_done",
+            {
+                "filename": filename,
+                "chunk_count": chunk_count,
+                "chunk_elapsed_s": round(time.time() - chunk_start, 2),
+            },
+            hypothesis_id="H3",
+        )
+        # #endregion
         print(f"    ✓ {chunk_count} chunks created ({file_size_mb:.1f} MB processed)")
     
     if skipped_count > 0:

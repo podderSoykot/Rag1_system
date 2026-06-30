@@ -1,3 +1,7 @@
+# Secrets (also covered by root .gitignore)
+.env
 .env/
 env
-.env
+
+# Generated indexes and embeddings
+data/embeddings/

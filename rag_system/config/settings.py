@@ -2,7 +2,7 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv()
+load_dotenv(BASE_DIR / ".env")
 DATA_RAW = BASE_DIR / "data" / "raw"
 DATA_PROCESSED = BASE_DIR / "data" / "processed"
 DATA_CHUNKS = DATA_PROCESSED / "chunks"
@@ -51,3 +51,11 @@ ENABLE_PERFORMANCE_PROFILING = os.getenv("ENABLE_PERFORMANCE_PROFILING", "false"
 
 # Answer generation configuration
 MAX_ANSWER_TOKENS = int(os.getenv("MAX_ANSWER_TOKENS", "600"))  # Increased for more complete answers
+
+# OpenAI configuration (supports both OPENAI_API_KEY and openai_api_key in .env)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("openai_api_key", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL") or os.getenv("model", "gpt-4o-mini")
+USE_OPENAI = os.getenv(
+    "USE_OPENAI",
+    "true" if OPENAI_API_KEY else "false",
+).lower() in ["1", "true", "yes"]

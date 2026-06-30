@@ -1,12 +1,17 @@
-import os
+from config.settings import USE_OPENAI, OPENAI_API_KEY, OPENAI_MODEL
 from .local_generator import generate_answer as local_generate_answer
 from .postprocessor import clean_answer, validate_answer_completeness
 
 
 def generate_answer(prompt: str, query: str = None):
-    """Generate answer using local model or Ollama, with dynamic continuation and post-processing."""
-    # Pass query to enable dynamic continuation
-    raw_answer = local_generate_answer(prompt, query=query)
+    """Generate answer using OpenAI, Ollama, or local model based on .env settings."""
+    if USE_OPENAI and OPENAI_API_KEY:
+        from .openai_generator import generate_answer as openai_generate_answer
+        print(f"[Info] Using OpenAI model: {OPENAI_MODEL}")
+        raw_answer = openai_generate_answer(prompt, query=query)
+    else:
+        # Pass query to enable dynamic continuation
+        raw_answer = local_generate_answer(prompt, query=query)
     
     # Post-process the answer
     cleaned_answer = clean_answer(raw_answer)
