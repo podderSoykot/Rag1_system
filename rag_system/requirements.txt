@@ -15,6 +15,9 @@ openai
 langgraph
 langchain-core
 mcp
+fastapi
+uvicorn[standard]
+python-multipart
 
 #checked
 # Note: Using Pinecone for vector search (cloud-based, scalable)

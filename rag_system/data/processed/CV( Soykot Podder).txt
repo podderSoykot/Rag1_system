@@ -1,0 +1,100 @@
+# Soykot Podder
+#Machine Learning Engineer, ANTT Robotics, #Dhaka, #Bangladesh
+21mcsi01@iiitdmj.ac.in — +880 173-4537627 — https://www.linkedin.com/in/soykot-podder-424684146/
+RESEARCH INTERESTS
+#Machine Learning(ML), #Deep Learning(DL), #Large Language Model(LLM), #Cyber Physical System, #Hardware Se-
+curity
+EDUCA TION
+# Indian Institute ofIn formation T echnology(IIITDMJ), #Jabalpur, #India #Sep-29 #2021 — #Sep-30 #2023
+Master of Science in Artificial In telligenceand Machine Learning Cumulative GPA: 7.9/10.00
+Thesis Title: Hardware Trojan detection Using Ensemble learning model
+#American In ternational University of Bangladesh(AIUB), #Dhaka, #Bangladesh #March-01 #2016 — #May-30
+#2020
+Bachelor of Science in Computer Science and Engineering Cumulative GPA: 3.06/4.00
+#Major field: Computer Vision, Human computer in teraction.
+ACADEMIC EXPERIENCE
+# ANTT Robotics #Dhaka, #Bangladesh
+# Level-1 Machine Learning Engineer #Feb-01 #2024 — Present
+• # Designed, developed, andoptimized machine learning modelsfor real-time applications, including predictive mainte-
+nance, vehicle detection, andmarket pricefor ecasting.
+• # Conducted data collection, prepossessing, andfeature engineering to ensurehigh-qualityinput formodel trainingand
+evaluation.
+• # Deployed machine learningmodels in production environments, ensuring scalability andperformance using APIs andcloud-basedsolutions.
+• # Collaborated with cross-functional teams to customize solutions based on client requirements, includingreal-timevehicle classification and LLM-basedchatbot systems.
+• # Leveraged state-of-the-artalgorithms andtechniques in computervision, NLP, andpredictive analyticsfor diverse
+application.
+# IIITDMJ #Jabalpur, #India
+# Junior Research Fellow #Jan-01 #2023 — Sep-2023
+• # Conducted research on botnet detection usingmachine learning techniques, focusing on solutions tailored forsmall,
+resource-constrained integrated devices.
+• # Designed lightweight machine learning models optimized forefficient real-timedetection of malicious activities in
+networktraffic.
+• # Engineered and selected critical featuresfrom networkdata to enableaccurate detectionwhile minimizing computa-
+tionaloverhead.
+• # Developed and testedscalable frameworksfor deployment on embedded systems, ensuring compatibility with IoT andedge devices.
+• # Contributed to advancingthe state of botnet detection by presenting innovative approaches at academicforums andpreparing manuscriptsfor publication.
+PROJECTS
+Resume Categorization Using Machine Learning Remote, Freelance Machine Learning Engineer Aug 2024 — Sep
+2024
+• Developed a machine learning pipeline to categorize resumes intopredefined jobcategories using TF-IDF vectorization
+and a Random Forest classifier.
+• Processed and cleanedtext data, ensuring efficient feature extraction andmodel performancefor accurate classification.
+• Automated the categorization process to organize resumes intodesignated foldersand generate a summary CSV withfilenames andpredicted categories.
+• Fine-tuned hyperparameters andconducted evaluation to achievehigh accuracy on training, validation, andtest datasets.
+• Delivered a scalableand user-friendly solution forclients, enabling efficient resume or ganizationand searchability.
+Soykot Podder # November #2024
+PUBLICA TIONS
+Journal paper
+# An Ensemble Learning Model for Hardware Trojan Detection in Integrated Circuit Design, reviewed
+• Podder, S. (2024). An Ensemble Learning Model for Hardware Trojan Detection in Integrated Circuit Design. SSRN
+Electronic Journal. Available at: https://doi.org/10.2139/ssrn.4884559
+SELECTED COURSES
+Master’s Courses Bachelor’s Courses
+• Deep Learning
+• Data Clustering
+• Research Methodology
+• Hardware Security
+• Embedded System
+• Mobile and wireless Network
+• Programming language 1(c)
+• PROGRAMMING language 2 (c++)
+• Data Structure and AlgorithmS
+• Theory of Computation
+• Human Computer In teraction
+• Object Oriented Analysis and Design
+• Computer Vision
+Additional Courses
+• AC,DC, Device, Dec, E-Shop
+• Statistics, Math 1 to 5
+AW ARDS
+# Study in India Scholarship #Jabalpur, #India
+#Awarded the prestigious Study in India Scholarship based on outstanding academic performance, providing financial sup-
+portfor tuitionfees andliving expenses. Successfully participated in the PRAGATII exam, whichevaluates skills in verbal
+reasoning, quantitative aptitude, andlogical reasoning, as part of thescholarship selection process.Selected from a competitive
+pool ofin ternational students, recognizedfor thepotential to contribute to global technological innovation. #June-07 #2021
+OTHER EXPERIENCES
+# T eaching Assistant, In troduction toAI #Jabalpur, #India
+# Teaching Assistant #Nov-01 #2021 — #Aug-27 #2023
+• Assisted with lecturesand gradingfor anAI course, providing student guidance on coreconcepts.
+• Organized study sessions to enhance understanding ofAI algorithms andtechniques.
+• Designed and administered quizzes, evaluated student performance, andprovided constructive feedback to support
+learning.
+SKILLS
+• Programming: Python, C++, SQL, Tensor Flow, Py Torch, Keras, Scikit-learn
+• Software: Jupyter Notebook, VS Code, Git, Docker, PostgreSQL, Microsoft Office Suite
+• Soft Skills: Communication, Problem-solving, Teamwork, Critical thinking, Adaptability, Time management
+REFERENCES
+Prof. Aparajita Ojha
+Professor, CSE, IIITDMJ, Jabalpur, India
+E-mail: aojha@iiitdmj.ac.in
+Scholar Profiles: University of IIITDMJ - Personal Page — Google Scholar — Linked InDr. Vijaypal Singh Rathor
+Assistant Professor, IIITM Gwalior, India
+E-mail: vijaypal@iiitm.ac.in
+Scholar Profiles: IIITM Gwalior - Personal Page — Linked In
+2
+Soykot Podder # November #2024
+Dr. Neelam Dayal
+Assistant Professor, IIITDM Jabalpur, India
+E-mail: neelam.dayal@iiitdmj.ac.in
+Scholar Profiles: IIITDMJ - Personal Page — Linked In
+3

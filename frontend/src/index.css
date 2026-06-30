@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-ink-700;
+  }
+
+  body {
+    @apply bg-ink-950 text-ink-200 antialiased;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(124, 108, 255, 0.15), transparent),
+      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(62, 232, 181, 0.06), transparent);
+    min-height: 100vh;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-ink-600;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-ink-900/70 backdrop-blur-xl border border-ink-700/60;
+  }
+
+  .prose-rag p {
+    @apply mb-3 leading-relaxed text-ink-200;
+  }
+
+  .prose-rag ul,
+  .prose-rag ol {
+    @apply mb-3 ml-4 space-y-1;
+  }
+
+  .prose-rag li {
+    @apply text-ink-300;
+  }
+
+  .prose-rag strong {
+    @apply font-semibold text-white;
+  }
+
+  .prose-rag code {
+    @apply rounded bg-ink-800 px-1.5 py-0.5 text-sm text-mint;
+  }
+}
