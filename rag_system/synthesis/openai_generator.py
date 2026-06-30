@@ -1,6 +1,7 @@
 from openai import OpenAI
 
 from config.settings import OPENAI_API_KEY, OPENAI_MODEL, MAX_ANSWER_TOKENS
+from synthesis.prompt_builder import RAG_SYSTEM_INSTRUCTIONS
 
 _client = None
 
@@ -18,18 +19,11 @@ def generate_answer(prompt: str, query: str = None):
         response = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a helpful AI assistant. Provide complete, detailed answers "
-                        "based on the provided documents. Be thorough and include all relevant "
-                        "information from the documents."
-                    ),
-                },
+                {"role": "system", "content": RAG_SYSTEM_INSTRUCTIONS},
                 {"role": "user", "content": prompt},
             ],
             max_tokens=MAX_ANSWER_TOKENS,
-            temperature=0.7,
+            temperature=0.3,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:

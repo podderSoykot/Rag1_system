@@ -50,7 +50,7 @@ PINECONE_DIMENSION = int(os.getenv("PINECONE_DIMENSION", "384"))  # Dimension fo
 ENABLE_PERFORMANCE_PROFILING = os.getenv("ENABLE_PERFORMANCE_PROFILING", "false").lower() in ["1", "true", "yes"]
 
 # Answer generation configuration
-MAX_ANSWER_TOKENS = int(os.getenv("MAX_ANSWER_TOKENS", "600"))  # Increased for more complete answers
+MAX_ANSWER_TOKENS = int(os.getenv("MAX_ANSWER_TOKENS", "1000"))
 
 # OpenAI configuration (supports both OPENAI_API_KEY and openai_api_key in .env)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("openai_api_key", "")

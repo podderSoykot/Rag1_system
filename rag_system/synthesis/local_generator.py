@@ -2,6 +2,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 import requests
 from config.settings import USE_OLLAMA, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT, MAX_ANSWER_TOKENS
+from synthesis.prompt_builder import RAG_SYSTEM_INSTRUCTIONS
 
 class LocalLLMGenerator:
     _instance = None
@@ -60,7 +61,7 @@ class LocalLLMGenerator:
             chat_supported = hasattr(self.tokenizer, "apply_chat_template") and self.tokenizer.chat_template is not None
             if chat_supported:
                 chat_messages = [
-                    {"role": "system", "content": "You are a helpful AI assistant. Provide complete, detailed answers based on the provided documents. Be thorough and include all relevant information."},
+                    {"role": "system", "content": RAG_SYSTEM_INSTRUCTIONS},
                     {"role": "user", "content": prompt}
                 ]
                 rendered_prompt = self.tokenizer.apply_chat_template(
@@ -175,7 +176,7 @@ class LocalLLMGenerator:
                         conversation_messages = [
                             {
                                 "role": "system",
-                                "content": "You are a helpful AI assistant. Provide complete, detailed answers based on the provided documents. Be thorough and include all relevant information from the documents. Always finish your thoughts completely."
+                                "content": RAG_SYSTEM_INSTRUCTIONS,
                             },
                             {
                                 "role": "user",

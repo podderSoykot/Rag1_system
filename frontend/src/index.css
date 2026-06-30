@@ -35,16 +35,34 @@
   }
 
   .prose-rag p {
-    @apply mb-3 leading-relaxed text-ink-200;
+    @apply mb-3 leading-relaxed text-ink-200 last:mb-0;
   }
 
   .prose-rag ul,
   .prose-rag ol {
-    @apply mb-3 ml-4 space-y-1;
+    @apply mb-3 ml-5 list-outside space-y-1.5;
+  }
+
+  .prose-rag ul {
+    @apply list-disc;
+  }
+
+  .prose-rag ol {
+    @apply list-decimal;
   }
 
   .prose-rag li {
-    @apply text-ink-300;
+    @apply text-ink-300 leading-relaxed;
+  }
+
+  .prose-rag h1,
+  .prose-rag h2,
+  .prose-rag h3 {
+    @apply mb-2 mt-4 font-display font-semibold text-white first:mt-0;
+  }
+
+  .prose-rag h3 {
+    @apply text-base;
   }
 
   .prose-rag strong {

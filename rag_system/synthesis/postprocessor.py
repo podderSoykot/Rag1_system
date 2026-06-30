@@ -84,35 +84,28 @@ def clean_answer(answer: str) -> str:
     """Main post-processing function to clean and format answers"""
     if not answer or len(answer.strip()) < 10:
         return answer
-    
-    # Remove meta-phrases
+
     cleaned = remove_meta_phrases(answer)
-    
-    # Remove repetition
     cleaned = remove_repetition(cleaned)
-    
-    # Improve list formatting
     cleaned = extract_lists(cleaned)
-    
-    # Fix capitalization at the start
+
     cleaned = cleaned.strip()
     if cleaned and cleaned[0].islower():
-        # Capitalize first letter if it's lowercase
         cleaned = cleaned[0].upper() + cleaned[1:]
-    
-    # Remove excessive whitespace
-    cleaned = re.sub(r'\s+', ' ', cleaned)
-    cleaned = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned)
-    
-    # Remove leading/trailing whitespace
+
+    # Collapse spaces/tabs within lines only — preserve paragraph breaks and markdown
+    lines = []
+    for line in cleaned.splitlines():
+        lines.append(re.sub(r'[ \t]+', ' ', line).strip())
+    cleaned = '\n'.join(lines)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+
     cleaned = cleaned.strip()
-    
-    # Ensure it ends with punctuation if it's a sentence
-    if cleaned and not cleaned[-1] in '.!?':
-        # Check if it looks like a complete sentence
+
+    if cleaned and cleaned[-1] not in '.!?':
         if len(cleaned) > 50 and not cleaned.endswith(':'):
             cleaned += '.'
-    
+
     return cleaned
 
 def detect_incomplete_answer(answer: str, query: str) -> Tuple[bool, str]:
